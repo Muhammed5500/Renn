@@ -1,35 +1,37 @@
-//! Uc imza yuku. PROJENIN KALBI, ACELE ETME.
+//! The three signed payloads. THE HEART OF THE PROJECT, DON'T RUSH.
 //!
-//! Hepsi ayni kalip: `sha256( XDR( tuple ) )`, uzerinde ed25519.
+//! All follow the same pattern: `sha256( XDR( tuple ) )`, signed with ed25519.
 //!
-//! | Yuk   | Tuple                                                          | Imzalayan |
-//! |-------|----------------------------------------------------------------|-----------|
-//! | Fis   | ("batchv3",  network_id, hub, payer, recipient, cumulative)    | odeyen    |
-//! | Kabul | ("acceptv1", network_id, hub, payer, recipient, cumulative)    | operator  |
-//! | Cekim | ("withdrv1", network_id, hub, who, amount, nonce, valid_until) | operator  |
+//! | Payload    | Tuple                                                          | Signer   |
+//! |------------|----------------------------------------------------------------|----------|
+//! | Voucher    | ("batchv3",  network_id, hub, payer, recipient, cumulative)    | payer    |
+//! | Acceptance | ("acceptv1", network_id, hub, payer, recipient, cumulative)    | operator |
+//! | Withdrawal | ("withdrv1", network_id, hub, who, amount, nonce, valid_until) | operator |
 //!
-//! | Alan | Engelledigi saldiri |
+//! | Field | Attack it prevents |
 //! |---|---|
-//! | domain ayraci | Bir yukun imzasinin baska bir yuk sanilmasi. Fis ve kabul AYNI alanlari tasiyor, ayrac olmasa operatorun kabul imzasi fis imzasi yerine gecerdi |
-//! | network_id | Testnet imzasinin mainnet'te kullanilmasi |
-//! | hub | Ayni config'le dagitilmis ikinci kontratta tekrar kullanim |
-//! | payer | Baskasinin fisinin senin borcunmus gibi islenmesi |
-//! | recipient | Fisin baska aliciya yonlendirilmesi |
-//! | cumulative | Tutar oynatma. Tekrar kullanimi da bu sayac engelliyor |
-//! | nonce | Ayni cekim onayinin iki kez kullanilmasi |
-//! | valid_until | Eski bir onayin gunler sonra kullanilmasi |
+//! | domain separator | One payload's signature being taken for another. Voucher and acceptance carry the SAME fields; without the separator the operator's acceptance signature would pass as a voucher signature |
+//! | network_id | A testnet signature being used on mainnet |
+//! | hub | Reuse on a second contract deployed with the same config |
+//! | payer | Someone else's voucher being processed as your debt |
+//! | recipient | A voucher being redirected to another recipient |
+//! | cumulative | Tampering with the amount. This counter also prevents reuse |
+//! | nonce | The same withdrawal approval being used twice |
+//! | valid_until | An old approval being used days later |
 //!
-//! v3.3: fisten `epoch` KALKTI. Tekrar kullanimi kumulatif sayac engelliyor,
-//! tur alaninin guvenlik gorevi yoktu ve fisin 60 saniyede olmesine yol
-//! aciyordu. `batchv2` -> `batchv3` ayraci v3.2 fislerini gecersiz kilar.
+//! v3.3: `epoch` was REMOVED from the voucher. The cumulative counter prevents
+//! reuse; the epoch field had no security role and made vouchers expire in
+//! 60 seconds. The `batchv2` -> `batchv3` separator invalidates v3.2 vouchers.
 //!
-//! YAPI BIR TUPLE, STRUCT DEGIL. Tuple ScVec olarak kodlanir; struct ScMap
-//! olur ve JS tarafinda anahtar siralamasini birebir tutturmak zorundasin.
+//! THE STRUCTURE IS A TUPLE, NOT A STRUCT. A tuple encodes as an ScVec; a
+//! struct becomes an ScMap and the JS side would have to match the key order
+//! exactly.
 //!
-//! NEDEN AUTH ENTRY DEGIL HAM IMZA (SPEC-imza-yuku.md par.1):
-//! 1. Yetki kaydinin omru ag ayarindaki max_entry_ttl ile sinirli (~180 gun).
-//! 2. Yetki kaydi tek cagri agacina baglanir ve tuketilir; bizim fisimiz
-//!    defalarca yerine yenisi gecen kumulatif bir beyan.
+//! WHY A RAW SIGNATURE AND NOT AN AUTH ENTRY (SPEC-imza-yuku.md section 1):
+//! 1. An auth entry's lifetime is capped by the network's max_entry_ttl
+//!    (~180 days).
+//! 2. An auth entry is bound to one call tree and consumed; our voucher is a
+//!    cumulative statement that is replaced by a newer one many times.
 
 use soroban_sdk::{symbol_short, xdr::ToXdr, Address, Bytes, BytesN, Env, Symbol};
 
@@ -55,17 +57,17 @@ fn pair_preimage(
         .to_xdr(e)
 }
 
-/// Odeyenin imzaladigi HAM BAYTLAR (hash'ten once).
+/// The RAW BYTES the payer signs (before hashing).
 pub fn voucher_preimage(e: &Env, payer: &Address, recipient: &Address, cumulative: i128) -> Bytes {
     pair_preimage(e, symbol_short!("batchv3"), payer, recipient, cumulative)
 }
 
-/// Operatorun kabul imzasinin HAM BAYTLARI.
+/// The RAW BYTES of the operator's acceptance signature.
 pub fn accept_preimage(e: &Env, payer: &Address, recipient: &Address, cumulative: i128) -> Bytes {
     pair_preimage(e, symbol_short!("acceptv1"), payer, recipient, cumulative)
 }
 
-/// Operatorun cekim onayinin HAM BAYTLARI.
+/// The RAW BYTES of the operator's withdrawal approval.
 pub fn withdraw_preimage(
     e: &Env,
     who: &Address,
@@ -107,10 +109,10 @@ pub fn withdraw_hash(
     hash(e, &withdraw_preimage(e, who, amount, nonce, valid_until))
 }
 
-/// Fisin IKI imzasini da dogrular: once odeyenin, sonra operatorun.
+/// Verifies BOTH signatures of the voucher: the payer's first, then the operator's.
 ///
-/// DIKKAT: `ed25519_verify` basarisiz olursa Result dondurmez, PANIKLER.
-/// Testlerde `should_panic` kullan.
+/// CAREFUL: when `ed25519_verify` fails it does not return a Result, it PANICS.
+/// Use `should_panic` in tests.
 pub fn verify(e: &Env, v: &Voucher) -> Result<(), Error> {
     let key = st::get_signer(e, &v.payer).ok_or(Error::NotJoined)?;
     let op = st::get_config(e)?.operator;
@@ -123,7 +125,7 @@ pub fn verify(e: &Env, v: &Voucher) -> Result<(), Error> {
     Ok(())
 }
 
-/// Operatorun cekim onayini dogrular. Basarisizlikta PANIKLER.
+/// Verifies the operator's withdrawal approval. PANICS on failure.
 pub fn verify_withdraw(
     e: &Env,
     who: &Address,

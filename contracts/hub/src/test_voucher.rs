@@ -1,5 +1,5 @@
 #![cfg(test)]
-//! ADIM R2 - uc yuk ve iki imza. PROJENIN KALBI.
+//! STEP R2 - three payloads and two signatures. THE HEART OF THE PROJECT.
 
 use super::*;
 use crate::test::*;
@@ -11,7 +11,7 @@ use soroban_sdk::{
     Bytes, BytesN, Env, String,
 };
 
-// ---------- yuk ----------
+// ---------- payload ----------
 
 #[test]
 fn test_preimage_is_deterministic() {
@@ -44,7 +44,7 @@ fn test_preimage_changes_with_every_field() {
     assert_ne!(w, f.hub.withdraw_preimage(&p1, &10, &0, &5001), "valid_until");
 }
 
-/// Fis ve kabul AYNI alanlari tasiyor. Ayirt eden tek sey domain ayraci.
+/// Voucher and acceptance carry the SAME fields. Only the domain separator tells them apart.
 #[test]
 fn test_preimage_kinds_differ() {
     let f = setup();
@@ -56,8 +56,8 @@ fn test_preimage_kinds_differ() {
     assert_ne!(f.hub.voucher_hash(&p, &r, &10), f.hub.accept_hash(&p, &r, &10));
 }
 
-/// Zincir disi taraf bu tuple'lari birebir uretmek zorunda. Yapi degisirse
-/// bu test kirilir ve sebebini soyler. Defterin payload.ts'i buna uymali.
+/// The off-chain side must produce these tuples exactly. If the structure
+/// changes this test breaks and says why. The ledger's payload.ts must match.
 #[test]
 fn test_preimages_match_independent_construction() {
     let f = setup();
@@ -74,7 +74,7 @@ fn test_preimages_match_independent_construction() {
         200_000i128,
     )
         .to_xdr(&f.e);
-    assert_eq!(f.hub.voucher_preimage(&p, &r, &200_000), voucher, "fis tuple'i");
+    assert_eq!(f.hub.voucher_preimage(&p, &r, &200_000), voucher, "voucher tuple");
     let vh: BytesN<32> = f.e.crypto().sha256(&voucher).into();
     assert_eq!(f.hub.voucher_hash(&p, &r, &200_000), vh);
 
@@ -87,7 +87,7 @@ fn test_preimages_match_independent_construction() {
         200_000i128,
     )
         .to_xdr(&f.e);
-    assert_eq!(f.hub.accept_preimage(&p, &r, &200_000), accept, "kabul tuple'i");
+    assert_eq!(f.hub.accept_preimage(&p, &r, &200_000), accept, "acceptance tuple");
 
     let withdraw = (
         symbol_short!("withdrv1"),
@@ -99,10 +99,10 @@ fn test_preimages_match_independent_construction() {
         9000u32,
     )
         .to_xdr(&f.e);
-    assert_eq!(f.hub.withdraw_preimage(&p, &50, &3, &9000), withdraw, "cekim tuple'i");
+    assert_eq!(f.hub.withdraw_preimage(&p, &50, &3, &9000), withdraw, "withdrawal tuple");
 }
 
-// ---------- odeyen imzasi ----------
+// ---------- payer signature ----------
 
 #[test]
 fn test_valid_signature_passes() {
@@ -123,8 +123,8 @@ fn test_forged_signature_fails() {
     f.hub.verify_voucher(&v);
 }
 
-/// p2'nin anahtariyla imzalanmis p1 fisi reddediliyor.
-/// BU TEST PROJENIN CAN DAMARI: yoksa herkes herkesin borcunu imzalar.
+/// A p1 voucher signed with p2's key is rejected.
+/// THIS TEST IS THE PROJECT'S LIFELINE: otherwise anyone could sign anyone's debt.
 #[test]
 #[should_panic]
 fn test_wrong_key_fails() {
@@ -178,8 +178,8 @@ fn test_recipient_tamper_fails() {
     f.hub.verify_voucher(&v);
 }
 
-/// Ayni token, ayni operator, ayni odeyen anahtari ile ikinci kasa.
-/// Birincinin fisi ikincide gecmemeli.
+/// A second vault with the same token, operator and payer key.
+/// A voucher for the first must not pass on the second.
 #[test]
 #[should_panic]
 fn test_cross_contract_replay_fails() {
@@ -205,7 +205,7 @@ fn test_cross_network_replay_fails() {
     f.hub.verify_voucher(&v);
 }
 
-/// v3.2 fisi (batchv2 + epoch) v3.3'te gecersiz.
+/// A v3.2 voucher (batchv2 + epoch) is invalid in v3.3.
 #[test]
 #[should_panic]
 fn test_v2_domain_rejected() {
@@ -228,7 +228,7 @@ fn test_v2_domain_rejected() {
     f.hub.verify_voucher(&v);
 }
 
-/// Hash'i degil ham XDR'i imzalamak: en sik JS hatasi.
+/// Signing the raw XDR instead of the hash: the most common JS mistake.
 #[test]
 #[should_panic]
 fn test_signing_raw_xdr_instead_of_hash_fails() {
@@ -244,9 +244,9 @@ fn test_signing_raw_xdr_instead_of_hash_fails() {
     f.hub.verify_voucher(&v);
 }
 
-// ---------- operator imzasi: defter atlanamaz ----------
+// ---------- operator signature: the ledger cannot be bypassed ----------
 
-/// Defterden gecmemis fis. BU TEST DEFTERIN ATLANAMAMASININ KANITI.
+/// A voucher that did not go through the ledger. THIS TEST PROVES THE LEDGER CANNOT BE BYPASSED.
 #[test]
 #[should_panic]
 fn test_voucher_without_operator_sig_fails() {
@@ -258,7 +258,7 @@ fn test_voucher_without_operator_sig_fails() {
     f.hub.verify_voucher(&v);
 }
 
-/// Baska bir anahtarin "kabulu" (sahte defter).
+/// An "acceptance" from another key (fake ledger).
 #[test]
 #[should_panic]
 fn test_other_operator_key_fails() {
@@ -268,7 +268,7 @@ fn test_other_operator_key_fails() {
     f.hub.verify_voucher(&f.voucher_by(&p, &k, &r, 40, &Key::new(201)));
 }
 
-/// Defter 10'u kabul etti; odeyen 40 yazip ayni kabulu kullanamaz.
+/// The ledger accepted 10; the payer cannot write 40 and reuse that acceptance.
 #[test]
 #[should_panic]
 fn test_operator_sig_for_other_voucher_fails() {
@@ -281,10 +281,10 @@ fn test_operator_sig_for_other_voucher_fails() {
     f.hub.verify_voucher(&v);
 }
 
-// ---------- domain ayrimi ----------
+// ---------- domain separation ----------
 //
-// En kotu durum: operatorun anahtari bir odeyenin anahtariyla AYNI. Ayrac
-// olmasaydi bir yukun imzasi digerinin yerine gecerdi.
+// Worst case: the operator's key is the SAME as a payer's key. Without the
+// separator one payload's signature would pass for the other.
 
 fn op_as_payer(f: &Fix) -> Address {
     let p = f.funded(100);
@@ -293,8 +293,8 @@ fn op_as_payer(f: &Fix) -> Address {
     p
 }
 
-/// Operator, kendi kabul imzasini odeyen imzasi diye sunamaz.
-/// ASLA GEVSETME.
+/// The operator cannot present its own acceptance signature as a payer signature.
+/// NEVER RELAX THIS.
 #[test]
 #[should_panic]
 fn test_accept_sig_not_valid_as_payer_sig() {
@@ -342,7 +342,7 @@ fn test_withdraw_sig_not_valid_as_accept_sig() {
 
 #[test]
 fn test_both_sigs_pass_on_fresh_env() {
-    // Kurulumdan bagimsiz: yeni bir Env'de de ayni anahtarlar calisiyor.
+    // Independent of setup(): the same keys also work in a fresh Env.
     let e = Env::default();
     e.mock_all_auths();
     let admin = Address::generate(&e);

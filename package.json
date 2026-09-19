@@ -2,7 +2,7 @@
   "name": "golge-defter",
   "private": true,
   "type": "module",
-  "description": "Golge defter: cok taraflı anlik ajan odemeleri, Stellar testnet.",
+  "description": "Shadow Ledger (golge-defter): instant many-to-many agent payments on Stellar testnet.",
   "workspaces": ["sdk", "operator", "demo"],
   "engines": { "node": ">=23.6" },
   "scripts": {

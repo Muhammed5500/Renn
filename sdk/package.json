@@ -1,7 +1,7 @@
 {
   "name": "@golge-defter/sdk",
   "version": "0.1.0",
-  "description": "Ajan ve servis tarafi: fis anahtari, x402 batch-settlement semasi (istemci + satici), kasa islemleri, SPP ile gizli giris.",
+  "description": "Agent and service side: voucher key, x402 batch-settlement scheme (client + seller), vault calls, private entry through SPP.",
   "type": "module",
   "exports": {
     ".": "./src/index.ts",

@@ -1,5 +1,5 @@
 #![cfg(test)]
-//! ADIM R4 - cekim, uc yol.
+//! STEP R4 - withdrawal, three paths.
 
 use super::*;
 use crate::test::*;
@@ -9,7 +9,7 @@ fn now(f: &Fix) -> u32 {
     f.e.ledger().sequence()
 }
 
-// ================= operator onayli, aninda =================
+// ================= approved by the operator, instant =================
 
 #[test]
 fn test_withdraw_approved_instant() {
@@ -18,7 +18,7 @@ fn test_withdraw_approved_instant() {
     let until = now(&f) + 60;
     let sig = f.approval(&p, 100, until);
     assert_eq!(f.hub.withdraw_approved(&p, &100, &until, &sig), 100);
-    assert_eq!(f.token.balance(&p), 100, "exit_start yok, bekleme yok");
+    assert_eq!(f.token.balance(&p), 100, "no exit_start, no wait");
     assert_eq!(f.hub.balance_of(&p), 0);
     assert_eq!(f.hub.exit_at_of(&p), None);
 }
@@ -35,7 +35,7 @@ fn test_withdraw_approved_partial() {
     assert_eq!(f.hub.withdraw_nonce_of(&p), 1);
 }
 
-/// Ayni onay ikinci kez kullanilamaz: nonce artti, imza artik tutmuyor.
+/// The same approval cannot be used twice: the nonce moved on, the signature no longer matches.
 #[test]
 #[should_panic]
 fn test_withdraw_approval_replay_fails() {
@@ -60,7 +60,7 @@ fn test_withdraw_approval_expired_fails() {
     );
 }
 
-/// A'nin onayiyla B cekemez.
+/// B cannot withdraw with A's approval.
 #[test]
 #[should_panic]
 fn test_withdraw_approval_for_other_who_fails() {
@@ -72,7 +72,7 @@ fn test_withdraw_approval_for_other_who_fails() {
     f.hub.withdraw_approved(&b, &4, &until, &sig);
 }
 
-/// Onaydaki tutar degistirilemez.
+/// The amount in the approval cannot be changed.
 #[test]
 #[should_panic]
 fn test_withdraw_approval_amount_tamper_fails() {
@@ -108,8 +108,8 @@ fn test_withdraw_approved_rejects_unjoined() {
     );
 }
 
-/// Onay tek basina para cekmeye yetmez, sahibinin imzasi da lazim.
-/// Operator bir onay imzalasa bile parayi kimseye gonderemez.
+/// The approval alone is not enough to withdraw, the owner's signature is also needed.
+/// Even if the operator signs an approval, it cannot send the money to anyone.
 #[test]
 fn test_withdraw_approved_requires_owner_auth() {
     let f = setup();
@@ -121,16 +121,16 @@ fn test_withdraw_approved_requires_owner_auth() {
     assert_eq!(f.hub.balance_of(&p), 10);
 }
 
-// ================= kayitsiz alici =================
+// ================= unregistered recipient =================
 
-/// Aldigi para kesin, bekletmek icin sebep yok.
+/// What it received is final, no reason to make it wait.
 #[test]
 fn test_pure_recipient_withdraws_anytime() {
     let f = setup();
     let (p, k) = f.payer(1, 100);
     let r = Address::generate(&f.e);
     f.hub.settle_one(&r, &f.voucher(&p, &k, &r, 40));
-    assert_eq!(f.hub.withdraw(&r), 40, "ayni ledger'da, pencere yok");
+    assert_eq!(f.hub.withdraw(&r), 40, "in the same ledger, no window");
     assert_eq!(f.token.balance(&r), 40);
 }
 
@@ -140,9 +140,9 @@ fn test_payout_pushes_to_pure_recipient() {
     let (p, k) = f.payer(1, 100);
     let r = Address::generate(&f.e);
     f.hub.settle_one(&r, &f.voucher(&p, &k, &r, 40));
-    f.e.set_auths(&[]); // ucuncu bir adres, hic imza yok
+    f.e.set_auths(&[]); // a third address, no signature at all
     assert_eq!(f.hub.payout(&r), 40);
-    assert_eq!(f.token.balance(&r), 40, "para sahibine gitti");
+    assert_eq!(f.token.balance(&r), 40, "the money went to its owner");
 }
 
 #[test]
@@ -159,7 +159,7 @@ fn test_payout_empty_fails() {
     assert_eq!(f.hub.try_payout(&r), Err(Ok(Error::EmptyBalance)));
 }
 
-// ================= kacis yolu (operatorsuz) =================
+// ================= escape hatch (no operator) =================
 
 #[test]
 fn test_payer_must_exit_or_be_approved() {
@@ -177,7 +177,7 @@ fn test_payer_withdraw_before_exit_delay_fails() {
     assert_eq!(f.hub.try_withdraw(&p), Err(Ok(Error::NotWithdrawable)));
 }
 
-/// Operator cokse de para sizin. ASLA GEVSETME.
+/// Even if the operator goes down, the money is yours. NEVER RELAX THIS.
 #[test]
 fn test_exit_path_after_delay() {
     let f = setup();
@@ -188,8 +188,8 @@ fn test_exit_path_after_delay() {
     assert_eq!(f.token.balance(&p), 100);
 }
 
-/// Cikis ilan edildi, sure dolmadi, uzlasma hala geciyor.
-/// Odeyen cikis ilan ederek borcundan kacamaz. ASLA GEVSETME.
+/// Exit announced, delay not over, settlement still goes through.
+/// A payer cannot escape its debt by announcing an exit. NEVER RELAX THIS.
 #[test]
 fn test_settle_still_works_after_exit_start() {
     let f = setup();
@@ -200,7 +200,7 @@ fn test_settle_still_works_after_exit_start() {
     f.advance(EXIT_DELAY / 2);
     assert_eq!(f.hub.settle_one(&r, &v), 30);
     f.advance(EXIT_DELAY);
-    assert_eq!(f.hub.withdraw(&p), 70, "sadece kalan");
+    assert_eq!(f.hub.withdraw(&p), 70, "only what is left");
 }
 
 #[test]
@@ -211,7 +211,7 @@ fn test_exit_start_is_idempotent() {
     let at = f.hub.exit_at_of(&p);
     f.advance(30);
     f.hub.exit_start(&p);
-    assert_eq!(f.hub.exit_at_of(&p), at, "sayac ilerlemedi");
+    assert_eq!(f.hub.exit_at_of(&p), at, "the countdown did not move");
 }
 
 #[test]
@@ -224,17 +224,17 @@ fn test_second_withdraw_fails() {
     assert_eq!(f.hub.try_withdraw(&p), Err(Ok(Error::EmptyBalance)));
 }
 
-// ================= alinan para kesin =================
+// ================= received money is final =================
 
-/// B'ye odeme uzlasti. Kontratin hicbir acik fonksiyonu B'nin imzasi
-/// olmadan B'nin toplam varligini (kasa + cuzdan) azaltamiyor.
-/// v3.3'te geri alma yok; defterin gelen parayi aninda harcanabilir
-/// saymasi buna dayaniyor. ASLA GEVSETME.
+/// A payment to B settled. No public function of the contract can reduce
+/// B's total holdings (vault + wallet) without B's signature.
+/// v3.3 has no clawback; the ledger counting incoming money as spendable
+/// right away depends on this. NEVER RELAX THIS.
 #[test]
 fn test_received_money_is_final() {
     let f = setup();
     let (p, k) = f.payer(1, 100);
-    let (b, _kb) = f.payer(2, 0); // kayitli: hem odeyen hem alan
+    let (b, _kb) = f.payer(2, 0); // registered: both payer and recipient
     f.hub.settle_one(&b, &f.voucher(&p, &k, &b, 40));
     let total = |f: &Fix| f.hub.balance_of(&b) + f.token.balance(&b);
     assert_eq!(total(&f), 40);
@@ -244,16 +244,16 @@ fn test_received_money_is_final() {
     let approval = f.approval(&b, 40, until);
     f.e.set_auths(&[]);
 
-    // B'nin imzasi olmadan: cekim, onayli cekim, cikis
+    // without B's signature: withdraw, approved withdraw, exit
     assert!(f.hub.try_withdraw(&b).is_err());
     assert!(f.hub.try_withdraw_approved(&b, &40, &until, &approval).is_err());
     assert!(f.hub.try_exit_start(&b).is_err());
-    // payout kayitli katilimciyi itemez
+    // payout cannot push a registered participant
     assert!(f.hub.try_payout(&b).is_err());
-    // B adina sahte fis: B'nin anahtari olmadan imza tutmaz
+    // forged voucher in B's name: without B's key the signature does not verify
     let forged = f.voucher(&b, &Key::new(99), &attacker, 40);
     assert!(f.hub.try_settle_one(&attacker, &forged).is_err());
 
-    assert_eq!(total(&f), 40, "B'nin parasi yerinde");
+    assert_eq!(total(&f), 40, "B's money is intact");
     assert_eq!(f.hub.balance_of(&attacker), 0);
 }

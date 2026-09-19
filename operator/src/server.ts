@@ -1,18 +1,18 @@
-// ADIM D3 + D4 - Golge defter sunucusu.
+// STEP D3 + D4 - Shadow ledger server.
 //
-// Tek surec. Fisleri kabul eder (core.ts), operator olarak imzalar, kabul
-// sirasinin oneklerini parti olarak zincire gonderir, zincir olaylarini izler.
+// One process. Accepts vouchers (core.ts), signs them as the operator, sends
+// prefixes of the acceptance order to the chain as batches, watches chain events.
 //
-//   GET  /state             herkesin kilitli / harcanabilir bakiyesi
-//   GET  /pair/:p/:r        son kabul edilen kumulatif (odeyen SDK'si toparlanir)
+//   GET  /state             everyone's locked / spendable balance
+//   GET  /pair/:p/:r        last accepted cumulative (the payer SDK recovers from it)
 //   GET  /feed              SSE: accepted, refused, batch_sent, batch_settled, ...
-//   POST /withdraw          cekim onayi. {who, amount}
-//   POST /flush             simdi parti gonder (demo)
-//   GET  /supported         x402 facilitator: desteklenen sema ve ag
-//   POST /verify            x402 facilitator: fis kabul edilir mi (salt okunur)
-//   POST /settle            x402 facilitator: fisi defterde kabul et
+//   POST /withdraw          withdrawal approval. {who, amount}
+//   POST /flush             send a batch now (demo)
+//   GET  /supported         x402 facilitator: supported scheme and network
+//   POST /verify            x402 facilitator: would the voucher be accepted (read-only)
+//   POST /settle            x402 facilitator: accept the voucher into the ledger
 //
-// Plan: PLAN-golge-defter.md (repo disinda, Proje/'nin bir ustunde) par.3 ve ADIM D3-D4.
+// Plan: PLAN-golge-defter.md (outside the repo, one level above Proje/) par.3 and STEP D3-D4.
 
 import http from "node:http";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
@@ -23,7 +23,7 @@ import { Chain, TESTNET, voucherScVal, A } from "@golge-defter/sdk/chain";
 import { SCHEME, NETWORK, type VoucherPayload } from "@golge-defter/sdk/x402";
 import { Relayer } from "./relay.ts";
 
-// ================= ayarlar =================
+// ================= settings =================
 
 const ROOT = new URL("../../", import.meta.url);
 const dep = JSON.parse(readFileSync(new URL("deployments.json", ROOT), "utf8"));
@@ -35,30 +35,30 @@ const env = Object.fromEntries(
 );
 
 const PORT = Number(process.env.PORT ?? 8787);
-// ---- parti tetikleyicileri (AUTO_SETTLE acikken; hangisi once gelirse) ----
-/** Sure: uzlasmamis fis varsa bu aralikla parti. Demo 30 sn, varsayilan 5 dk. */
+// ---- batch triggers (when AUTO_SETTLE is on; whichever comes first) ----
+/** Time: a batch at this interval if anything is unsettled. Demo 30 s, default 5 min. */
 const ROUND_MS = Number(process.env.ROUND_MS ?? 300_000);
-/** Kapasite: uzlasmamis FARKLI cift sayisi. Ayni zamanda islem basina sinir.
- *  Olculen sinir ~190 cift (LIMITS.md), %75 pay. */
+/** Capacity: number of DISTINCT unsettled pairs. Also the per-transaction limit.
+ *  Measured limit ~190 pairs (LIMITS.md), 75% of it. */
 const MAX_PAIRS = Number(process.env.MAX_PAIRS ?? 150);
-/** Tutar: uzlasmamis toplam (7 ondalikli tam sayi). Varsayilan 1000 birim. */
+/** Value: unsettled total (7-decimal integer). Default 1000 units. */
 const MAX_UNSETTLED = BigInt(process.env.MAX_UNSETTLED ?? 1000n * 10_000_000n);
-/** Tutar: tek bir alicinin bekleyen alacagi. Varsayilan 100 birim. Operatore
- *  guvenilen tutari sinirlar: buyuk odemeler beklemeden zincire yazilir. */
+/** Value: what a single recipient is owed. Default 100 units. Limits the
+ *  amount that relies on the operator: large payments reach the chain without waiting. */
 const MAX_RECIPIENT_UNSETTLED = BigInt(process.env.MAX_RECIPIENT_UNSETTLED ?? 100n * 10_000_000n);
 const LOG = new URL(process.env.LEDGER_LOG ?? "ledger.log", new URL("../", import.meta.url));
 const AUTO_SETTLE = process.env.AUTO_SETTLE !== "0";
-/** x402 istemcilerinin defteri bulacagi adres (/supported'da ilan edilir). */
+/** Address where x402 clients find the ledger (announced in /supported). */
 const PUBLIC_URL = process.env.PUBLIC_URL ?? `http://localhost:${PORT}`;
 
 const opKp = P.keyFromSeed(env.OPERATOR_SEED);
-if (P.pubHex(opKp) !== dep.operator) throw new Error(".env'deki operator anahtari deployments.json ile uyusmuyor");
+if (P.pubHex(opKp) !== dep.operator) throw new Error("the operator key in .env does not match deployments.json");
 
 const hubCfg: P.HubCfg = { networkId: P.networkId(TESTNET.passphrase), hub: dep.hub };
 const chain = new Chain({ ...TESTNET, hub: dep.hub, token: dep.token }, opKp.publicKey());
 const core = new LedgerCore();
 
-/** Gizli giris (SPP) relayer'i. .env'de RELAYER_SECRET yoksa kapali. */
+/** Private entry (SPP) relayer. Off when .env has no RELAYER_SECRET. */
 const spp = existsSync(new URL("spp/deployments.json", ROOT))
   ? JSON.parse(readFileSync(new URL("spp/deployments.json", ROOT), "utf8"))
   : null;
@@ -77,7 +77,7 @@ const relayer =
       )
     : null;
 
-// ================= yardimcilar =================
+// ================= helpers =================
 
 const json = (v: unknown) =>
   JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x instanceof Map ? Object.fromEntries(x) : x));
@@ -90,7 +90,7 @@ function emit(event: string, data: Record<string, unknown>) {
   for (const c of clients) c.write(msg);
 }
 
-/** Zincirle konusan her sey (parti, tazeleme) sirayla. Kabul bunun disinda. */
+/** Everything that talks to the chain (batches, refreshes) runs in order. Acceptance is outside this. */
 let chainLock: Promise<unknown> = Promise.resolve();
 function locked<T>(fn: () => Promise<T>): Promise<T> {
   const p = chainLock.then(fn, fn);
@@ -100,9 +100,9 @@ function locked<T>(fn: () => Promise<T>): Promise<T> {
 
 let latestLedger = 0;
 const known = new Set<string>();
-/** Arayuz icin adres etiketleri (demo scripti verir). */
+/** Address labels for the dashboard (set by the demo script). */
 const labels = new Map<string, string>();
-/** Bilinen adresler log'a yazilir; yeniden acilista /state bos kalmasin. */
+/** Known addresses are logged so /state is not empty after a restart. */
 function remember(x: string) {
   if (known.has(x)) return;
   known.add(x);
@@ -115,14 +115,14 @@ const stats = {
   batches: 0,
   lastBatchTx: "",
   hubToken: 0n,
-  /** son partiyi tetikleyen sebep: time | capacity | total | recipient | exit | withdraw | manual */
+  /** what triggered the last batch: time | capacity | total | recipient | exit | withdraw | manual */
   lastBatchReason: "",
   reasons: {} as Record<string, number>,
 };
 
-// ================= zincir durumu =================
+// ================= chain state =================
 
-/** En fazla 8 es zamanli RPC. Daha fazlasinda testnet RPC baglantiyi dusuruyor. */
+/** At most 8 concurrent RPC calls. With more, the testnet RPC drops connections. */
 async function pooled<T, R>(items: T[], fn: (x: T) => Promise<R>, width = 8): Promise<R[]> {
   const out: R[] = [];
   for (let i = 0; i < items.length; i += width) {
@@ -131,11 +131,11 @@ async function pooled<T, R>(items: T[], fn: (x: T) => Promise<R>, width = 8): Pr
   return out;
 }
 
-/** Adresleri zincirden tazeler. Ucusta parti varken cagrilmaz (kilit altinda). */
+/** Refreshes addresses from the chain. Never called while a batch is in flight (runs under the lock). */
 async function refresh(addrs: Iterable<string>, pairs: Iterable<[string, string]> = []) {
   const balances = new Map<string, bigint>();
   const paid = new Map<string, bigint>();
-  // Okumalar paralel, uygulama sirali ve senkron.
+  // Reads in parallel; applying them is ordered and synchronous.
   const list = [...new Set(addrs)];
   const reads = await pooled(list, (x) =>
     Promise.all([chain.balanceOf(x), chain.signerOf(x), chain.exitAtOf(x)]),
@@ -158,7 +158,7 @@ async function refresh(addrs: Iterable<string>, pairs: Iterable<[string, string]
 
 let cursor: string | undefined;
 
-/** Olaylari okur, ilgili adresleri tazeler. */
+/** Reads events and refreshes the addresses involved. */
 async function watch() {
   const start = cursor ? { cursor } : { startLedger: Math.max(1, (await chain.latestLedger()) - 20_000) };
   const res = await chain.events(start);
@@ -170,7 +170,7 @@ async function watch() {
   const dirtyPairs: [string, string][] = [];
   let exitSeen = false;
   for (const ev of res.events) {
-    chain.observe(ev.ledger); // bu olaydan sonraki durumu oku
+    chain.observe(ev.ledger); // read the state after this event
     const who = ev.topics[0] as string | undefined;
     switch (ev.name) {
       case "joined":
@@ -196,13 +196,13 @@ async function watch() {
   }
   if (dirty.size) await refresh(dirty, dirtyPairs);
   if (res.events.length) log({ t: "cursor", cursor });
-  // Cikis ilani: bekletme, hemen uzlas (plan par.3.5)
+  // Exit announced: don't wait, settle now (plan par.3.5)
   return exitSeen;
 }
 
-// ================= parti =================
+// ================= batches =================
 
-/** Kabul sirasinin bir onekini zincire gonderir. Kilit ALTINDA cagir. */
+/** Sends a prefix of the acceptance order to the chain. Call UNDER the lock. */
 async function flushOnce(reason: string): Promise<boolean> {
   const b = core.cutBatch(MAX_PAIRS);
   if (!b) return false;
@@ -224,10 +224,10 @@ async function flushOnce(reason: string): Promise<boolean> {
       total: bigint; settled: number; stale: number; skipped: string[];
     };
     if (out.skipped.length) {
-      // Onek parti kurdugumuz surece OLMAMALI. Olursa defterde hata var.
-      console.error("UYARI: kontrat odeyen eledi", out.skipped);
+      // Must NOT happen as long as we build prefix batches. If it does, the ledger has a bug.
+      console.error("WARNING: the contract dropped a payer", out.skipped);
     }
-    // Zincirin gercegini al (disaridan uzlasmalar dahil)
+    // Take the chain's truth (including settlements from outside)
     const addrs = new Set<string>();
     for (const it of b.items) addrs.add(it.payer).add(it.recipient);
     await refresh(addrs, b.items.map((it) => [it.payer, it.recipient] as [string, string]));
@@ -251,12 +251,12 @@ async function flushOnce(reason: string): Promise<boolean> {
     core.batchFailed();
     batchDone();
     emit("batch_failed", { error: String(err) });
-    console.error("parti basarisiz:", err);
+    console.error("batch failed:", err);
     return false;
   }
 }
 
-/** Belirli bir seq'e kadar her seyi uzlastir. */
+/** Settle everything up to a given seq. */
 function flushUpTo(seq: number, reason = "manual") {
   return locked(async () => {
     while (core.entries.some((e) => e.seq <= seq)) {
@@ -266,16 +266,17 @@ function flushUpTo(seq: number, reason = "manual") {
 }
 
 /**
- * Tetikleyiciden gelen parti istegi. Art arda gelen istekler kuyrukta TEK
- * bir partiye birlesir: bir parti bekliyorken yenisi eklenmez.
+ * Batch request from a trigger. Back-to-back requests merge into ONE queued
+ * batch: while one is waiting, no new one is added.
  */
 let flushQueued = false;
 function requestFlush(reason: string) {
   if (flushQueued) return;
   flushQueued = true;
-  // SADECE istendigi ana kadar kabul edilenler. Parti ucustayken gelen yeni
-  // fisler kendi tetikleyicisini bekler; yoksa yogun trafikte dongu hic durmaz
-  // ve sure tetikleyicisinin maliyet kontrolu anlamsizlasir.
+  // ONLY what was accepted up to the moment of the request. New vouchers that
+  // arrive while a batch is in flight wait for their own trigger; otherwise the
+  // loop never stops under heavy traffic and the time trigger's cost control
+  // becomes meaningless.
   const upto = core.seq;
   void locked(async () => {
     flushQueued = false;
@@ -285,7 +286,7 @@ function requestFlush(reason: string) {
   });
 }
 
-/** Her kabulden sonra: kapasite ve tutar tetikleyicileri. */
+/** After every acceptance: capacity and value triggers. */
 function checkTriggers() {
   if (!AUTO_SETTLE) return;
   const s = core.unsettledSummary();
@@ -295,19 +296,19 @@ function checkTriggers() {
     : s.topRecipientAmount >= MAX_RECIPIENT_UNSETTLED ? "recipient"
     : null;
   if (reason) {
-    console.log(`tetik ${reason}: cift ${s.pairs}, toplam ${s.total}, en buyuk alici ${s.topRecipientAmount} (kuyrukta: ${flushQueued})`);
+    console.log(`trigger ${reason}: pairs ${s.pairs}, total ${s.total}, top recipient ${s.topRecipientAmount} (queued: ${flushQueued})`);
     requestFlush(reason);
   }
 }
 
-// ================= kabul =================
+// ================= acceptance =================
 
 function acceptVoucher(body: {
   payer: string;
   recipient: string;
   cumulative: string;
   sig: string;
-  /** alici ara katmani: bu istegin bedeli. Fark bundan azsa ret. */
+  /** recipient middleware: the price of this request. Refused if the increase is smaller. */
   min_delta?: string;
 }) {
   const v = {
@@ -318,8 +319,8 @@ function acceptVoucher(body: {
   };
   remember(v.payer);
   remember(v.recipient);
-  // "bedelin altinda" sadece yeni bir fark varsa anlamli. Fark <= 0 ise fis eski:
-  // o durumda sebebi cekirdek soylesin (stale), tekrar gonderim oyle gorunsun.
+  // "underpaid" only makes sense for a new increase. If the increase is <= 0 the
+  // voucher is old: let the core give the reason (stale), so a replay shows as one.
   const fresh = v.cumulative - core.accepted(v.payer, v.recipient);
   if (body.min_delta && fresh > 0n && fresh < BigInt(body.min_delta)) {
     stats.refused += 1;
@@ -334,7 +335,7 @@ function acceptVoucher(body: {
     emit("refused", { payer: v.payer, recipient: v.recipient, cumulative: v.cumulative, reason: r.reason });
     return { status: "refused", reason: r.reason };
   }
-  // Kabul imzasi: kontrat bunu gormeden fisi kabul etmez.
+  // Acceptance signature: the contract refuses the voucher without it.
   r.entry.opSig = P.signHex(opKp, P.acceptHash(hubCfg, v.payer, v.recipient, v.cumulative));
   stats.accepted += 1;
   log({ t: "accept", ...r.entry });
@@ -386,8 +387,8 @@ function stateView() {
 
 // ================= x402 facilitator (v2) =================
 //
-// Kaynak sunucusu (@x402/express paymentMiddleware) bu uclari HTTPFacilitatorClient
-// ile cagirir. Istek govdesi: { x402Version, paymentPayload, paymentRequirements }.
+// The resource server (@x402/express paymentMiddleware) calls these endpoints via
+// HTTPFacilitatorClient. Request body: { x402Version, paymentPayload, paymentRequirements }.
 
 function supported() {
   return {
@@ -396,7 +397,7 @@ function supported() {
         x402Version: 2,
         scheme: SCHEME,
         network: NETWORK,
-        // 402 cevabina eklenir: istemci hangi kasaya ve deftere odedigini bilir.
+        // added to the 402 response: the client knows which vault and ledger it pays into.
         extra: { hub: dep.hub, ledger: PUBLIC_URL, operator: dep.operator },
       },
     ],
@@ -411,7 +412,7 @@ type X402Req = {
   paymentRequirements?: Record<string, any>;
 };
 
-/** Sema ve gereksinim kontrolleri. Sorun yoksa fis dondurur. */
+/** Scheme and requirement checks. Returns the voucher if all is well. */
 function parseX402(b: X402Req): { error: string } | { v: VoucherPayload["voucher"]; amount: bigint } {
   const req = b.paymentRequirements;
   const pp = b.paymentPayload;
@@ -430,7 +431,7 @@ function parseX402(b: X402Req): { error: string } | { v: VoucherPayload["voucher
   return { v, amount: BigInt(req.amount) };
 }
 
-/** /verify: SALT OKUNUR. Fis su an kabul edilir miydi? */
+/** /verify: READ-ONLY. Would the voucher be accepted right now? */
 function x402Verify(b: X402Req) {
   const p = parseX402(b);
   if ("error" in p) return { isValid: false, invalidReason: p.error };
@@ -443,7 +444,7 @@ function x402Verify(b: X402Req) {
   return { isValid: true, payer: v.payer };
 }
 
-/** /settle: fisi defterde KABUL EDER. Zincire gitmez, deger toplu partide gider. */
+/** /settle: ACCEPTS the voucher into the ledger. Nothing goes on chain now; value moves in a batch. */
 function x402Settle(b: X402Req) {
   const p = parseX402(b);
   if ("error" in p) return { success: false, errorReason: p.error, transaction: "", network: NETWORK };
@@ -461,20 +462,20 @@ function x402Settle(b: X402Req) {
   return {
     success: true,
     payer: p.v.payer,
-    transaction: "", // zincir islemi yok: deger bir sonraki partide gider
+    transaction: "", // no on-chain transaction: value moves in the next batch
     network: NETWORK,
     amount: ok.delta.toString(),
     extra: {
       seq: ok.seq,
       cumulative: p.v.cumulative,
-      // alici bu imzayla fisini operatorsuz da uzlastirabilir (settle_one)
+      // with this signature the recipient can settle its voucher without the operator (settle_one)
       operatorSignature: ok.op_sig,
       payerSignature: p.v.signature,
     },
   };
 }
 
-/** Bir sonraki parti denemesi bitince cozulur (basarili ya da degil). */
+/** Resolves when the next batch attempt ends (successful or not). */
 let batchWaiters: (() => void)[] = [];
 function nextBatch(timeoutMs: number): Promise<void> {
   return new Promise((ok) => {
@@ -492,20 +493,20 @@ function batchDone() {
 }
 
 /**
- * Cekim onayi (plan par.3.6, v3.3.1).
+ * Withdrawal approval (plan par.3.6, v3.3.1).
  *
- *   - Ajanin zincirdeki kendi parasindan karsilaniyorsa: ANINDA, parti yok.
- *     Verdigi fisler kasada kalan paradan sonra odenir.
- *   - Bir kismi henuz gelmemis paradan (uzlasmamis gelen fisler) olusuyorsa:
- *     o para zincirde hala odeyenin bakiyesinde. Olagan partiyi bekle, sonra
- *     imzala. Cekim yuzunden EK ISLEM YOK.
- *   - AUTO_SETTLE kapaliysa (demo) olagan parti yok: partiyi hemen gonder.
+ *   - Covered by the agent's own on-chain money: IMMEDIATE, no batch. The
+ *     vouchers it gave are paid later from what stays in the vault.
+ *   - Partly money that has not arrived yet (unsettled incoming vouchers): on
+ *     chain that money is still in the payer's balance. Wait for the regular
+ *     batch, then sign. NO EXTRA TRANSACTION because of the withdrawal.
+ *   - With AUTO_SETTLE off (demo) there is no regular batch: send it now.
  */
 async function approveWithdraw(body: { who: string; amount: string; nonce: string; sig: string }) {
   const who = body.who;
   const amount = BigInt(body.amount);
   const nonce = BigInt(body.nonce ?? -1);
-  // Istek sahibinin imzasi: yoksa herkes baskasinin parasini ayirtip dondurabilirdi.
+  // The requester's signature: without it anyone could reserve and freeze someone else's money.
   const signer = core.signers.get(who);
   if (!signer) return { status: "refused", reason: "not_joined" };
   if (nonce !== (await chain.withdrawNonceOf(who))) return { status: "refused", reason: "bad_nonce" };
@@ -536,7 +537,7 @@ async function approveWithdraw(body: { who: string; amount: string; nonce: strin
     }
   }
 
-  // nonce istekte dogrulandi; onay ayni nonce'a imzalanir
+  // the nonce was checked in the request; the approval is signed for the same nonce
   const sig = P.signHex(opKp, P.withdrawHash(hubCfg, who, amount, nonce, validUntil));
   emit("withdraw_approved", { who, amount, nonce, validUntil, path });
   return { status: "approved", amount, nonce, valid_until: validUntil, op_sig: sig, path };
@@ -559,9 +560,9 @@ function readBody(req: http.IncomingMessage): Promise<any> {
 }
 
 /**
- * Operator uclari (/, /state, /feed, /flush, /track) SADECE ayni makineden.
- * Defter operatorun ic sistemi: butun odemeleri gosteriyor. Uzaktan gosterim
- * gerekirse OPERATOR_ONLY=0.
+ * Operator endpoints (/, /state, /feed, /flush, /track) ONLY from the same machine.
+ * The ledger is the operator's internal system: it shows every payment. For a
+ * remote display, set OPERATOR_ONLY=0.
  */
 const OPERATOR_ONLY = process.env.OPERATOR_ONLY !== "0";
 const LOCAL = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
@@ -588,8 +589,8 @@ const server = http.createServer(async (req, res) => {
     if (req.method === "GET" && url.pathname === "/supported") return send(200, supported());
     if (req.method === "POST" && url.pathname === "/verify") return send(200, x402Verify(await readBody(req)));
     if (req.method === "POST" && url.pathname === "/settle") {
-      // NOT: eski demo ucu da /settle idi (bos govdeyle "simdi parti gonder").
-      // O artik /flush. Bu uc x402 facilitator'in settle'i.
+      // NOTE: the old demo endpoint was also /settle (empty body = "send a batch now").
+      // That is /flush now. This endpoint is the x402 facilitator's settle.
       return send(200, x402Settle(await readBody(req)));
     }
     if (req.method === "GET" && url.pathname.startsWith("/pair/")) {
@@ -618,8 +619,8 @@ const server = http.createServer(async (req, res) => {
       if (req.method === "GET" && url.pathname === "/relay/info") {
         return send(200, { address: relayer.address, hub: dep.hub, sppPool: relayer.cfg.sppPool });
       }
-      if (req.method !== "POST") return send(404, { error: "yok" });
-      // Saatlik sinir disaridan gelenler icin (operatorun kendi makinesi haric)
+      if (req.method !== "POST") return send(404, { error: "not_found" });
+      // Hourly limit for outside callers (the operator's own machine is exempt)
       const ip = req.socket.remoteAddress ?? "";
       if (!LOCAL.has(ip) && !relayer.allow(ip)) return send(429, { error: "rate_limited" });
       const b = await readBody(req);
@@ -630,8 +631,8 @@ const server = http.createServer(async (req, res) => {
             ? await relayer.sponsorAccount(String(b.address ?? ""))
             : url.pathname === "/relay/fee-bump"
               ? await relayer.feeBump(String(b.xdr ?? ""))
-              : { error: "yok" };
-      if ("error" in out) console.warn(`relay ${url.pathname} reddedildi: ${out.error}`);
+              : { error: "not_found" };
+      if ("error" in out) console.warn(`relay ${url.pathname} refused: ${out.error}`);
       else emit("relay", { path: url.pathname });
       return send("error" in out ? 400 : 200, out);
     }
@@ -640,7 +641,7 @@ const server = http.createServer(async (req, res) => {
       return send(200, stateView());
     }
     if (req.method === "POST" && url.pathname === "/track") {
-      // Demo kolayligi: bir adresi hemen zincirden tazele (olay beklemeden).
+      // Demo convenience: refresh an address from the chain now (without waiting for events).
       const b = await readBody(req);
       for (const [a, name] of Object.entries(b.labels ?? {})) {
         labels.set(a, String(name));
@@ -649,20 +650,20 @@ const server = http.createServer(async (req, res) => {
       await locked(() => refresh(b.addresses ?? []));
       return send(200, stateView());
     }
-    send(404, { error: "yok" });
+    send(404, { error: "not_found" });
   } catch (e) {
     send(400, { error: String(e) });
   }
 });
 
-// ================= acilis =================
+// ================= startup =================
 
 const loggedKnown = new Set<string>();
 
 async function boot() {
   latestLedger = await chain.latestLedger();
   stats.hubToken = await chain.tokenBalance(dep.hub);
-  // Log'u oynat: once zincir durumu, sonra uzlasmamis kabuller.
+  // Replay the log: chain state first, then unsettled acceptances.
   if (existsSync(LOG)) {
     const recs = readFileSync(LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
     const addrs = new Set<string>();
@@ -690,42 +691,42 @@ async function boot() {
       if (r.t === "release") core.release(r.who, BigInt(r.amount));
     }
     for (const a of addrs) known.add(a);
-    console.log(`log oynatildi: seq ${core.seq}, uzlasmamis ${core.entries.length}`);
+    console.log(`log replayed: seq ${core.seq}, unsettled ${core.entries.length}`);
   }
   logReady = true;
   for (const a of known) if (!loggedKnown.has(a)) log({ t: "known", a });
-  // Ilk olay okumasi olumcul degil: izleyici 4 sn'de bir zaten tekrar ediyor.
-  await locked(watch).catch((e) => console.error("ilk olay okumasi:", (e as Error).message));
+  // The first event read is not fatal: the watcher repeats every 4 s anyway.
+  await locked(watch).catch((e) => console.error("first event read:", (e as Error).message));
 
   server.listen(PORT, () => {
-    console.log(`golge defter: http://localhost:${PORT}  hub ${dep.hub}`);
+    console.log(`shadow ledger: http://localhost:${PORT}  hub ${dep.hub}`);
     console.log(`operator: ${opKp.publicKey()}`);
-    console.log(relayer ? `relayer (gizli giris): ${relayer.address}  SPP havuzu ${relayer.cfg.sppPool}` : "relayer kapali (RELAYER_SECRET yok)");
+    console.log(relayer ? `relayer (private entry): ${relayer.address}  SPP pool ${relayer.cfg.sppPool}` : "relayer off (no RELAYER_SECRET)");
     console.log(
       AUTO_SETTLE
-        ? `parti: her ${ROUND_MS / 1000} sn | ${MAX_PAIRS} cift | toplam ${Number(MAX_UNSETTLED) / 1e7} | alici basina ${Number(MAX_RECIPIENT_UNSETTLED) / 1e7} (hangisi once)`
-        : "parti: otomatik KAPALI (AUTO_SETTLE=0), sadece /flush, cikis ve cekim",
+        ? `batches: every ${ROUND_MS / 1000} s | ${MAX_PAIRS} pairs | total ${Number(MAX_UNSETTLED) / 1e7} | per recipient ${Number(MAX_RECIPIENT_UNSETTLED) / 1e7} (whichever first)`
+        : "batches: automatic OFF (AUTO_SETTLE=0), only /flush, exit and withdrawal",
     );
   });
 
-  // izleyici: her 4 sn
+  // watcher: every 4 s
   setInterval(() => {
     void locked(watch)
       .then((exitSeen) => (exitSeen ? flushUpTo(core.seq, "exit") : undefined))
-      .catch((e) => console.error("izleyici:", e.message));
+      .catch((e) => console.error("watcher:", e.message));
   }, 4000);
-  // sure tetikleyicisi
+  // time trigger
   if (AUTO_SETTLE) setInterval(() => requestFlush("time"), ROUND_MS);
 }
 
-// Acilis RPC'ye bagli: gecici bir ag hatasi defteri oldurmesin.
+// Startup depends on RPC: a transient network error should not kill the ledger.
 async function bootWithRetry() {
   for (let attempt = 1; ; attempt++) {
     try {
       return await boot();
     } catch (e) {
       if (attempt >= 5) throw e;
-      console.error(`acilis basarisiz (${attempt}/5): ${String((e as Error).message ?? e).slice(0, 120)}, 3 sn sonra tekrar`);
+      console.error(`startup failed (${attempt}/5): ${String((e as Error).message ?? e).slice(0, 120)}, retrying in 3 s`);
       await new Promise((r) => setTimeout(r, 3000));
     }
   }

@@ -1,10 +1,10 @@
-// @golge-defter/sdk: ajanin ve servisin kullandigi her sey.
+// @golge-defter/sdk: everything an agent or a service uses.
 //
-//   odeyen ajan  : Agent + BatchSettlementStellarClient (x402 istemcisi)
-//   satici servis: BatchSettlementStellarServer (x402 kaynak sunucusu)
-//   kasa         : Chain (join, deposit, cekim, okumalar)
-//   gizli giris  : privateOnboard (tek cagri), SppCli, openSponsored, relayedInvoke
-//   imzali yukler: payload (kontratla bayt bayt ayni)
+//   paying agent   : Agent + BatchSettlementStellarClient (x402 client)
+//   selling service: BatchSettlementStellarServer (x402 resource server)
+//   vault          : Chain (join, deposit, withdrawals, reads)
+//   private entry  : privateOnboard (one call), SppCli, openSponsored, relayedInvoke
+//   signed payloads: payload (byte-identical to the contract)
 
 export { Agent } from "./agent.ts";
 export { BatchSettlementStellarClient, BatchSettlementStellarServer, SCHEME, NETWORK } from "./x402.ts";

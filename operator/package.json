@@ -2,7 +2,7 @@
   "name": "@golge-defter/operator",
   "version": "0.1.0",
   "private": true,
-  "description": "Golge defter (operator): fisleri kabul eder, siralar, imzalar, partileri zincire gonderir. x402 facilitator ve gizli giris relayer'i.",
+  "description": "Shadow ledger (operator): accepts, orders and signs vouchers and sends batches to the chain. x402 facilitator and private entry relayer.",
   "type": "module",
   "scripts": {
     "start": "node src/server.ts",

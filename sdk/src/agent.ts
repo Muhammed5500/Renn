@@ -1,8 +1,9 @@
-// Ajan: fis anahtari ve kimligi. x402 istemci semasi (x402.ts) bunu kullanir.
+// Agent: voucher key and identity. The x402 client scheme (x402.ts) uses it.
 //
-// Fis cift basina KUMULATIF. Kumulatif her odemede defterin bildigi son
-// degerden hesaplanir (GET /pair). `cum` sadece o okumanin onbellegi: surec
-// cokerse ya da bir odeme basarisiz olursa fazla odeme olmaz.
+// Vouchers are CUMULATIVE per pair. On every payment the cumulative is
+// computed from the last value the ledger knows (GET /pair). `cum` is only a
+// cache of that read: if the process crashes or a payment fails, nothing is
+// overpaid.
 
 import * as P from "./payload.ts";
 
@@ -20,12 +21,12 @@ export class Agent {
     this.key = P.keyFromSeed(o.seedHex);
   }
 
-  /** Kayitta kullanilacak ham ed25519 acik anahtar (join'e giden). */
+  /** Raw ed25519 public key registered at join. */
   get commitmentKey(): string {
     return P.pubHex(this.key);
   }
 
-  /** Defterin bildigi son kumulatifi al (yeniden baslatma, ret sonrasi). */
+  /** Fetch the last cumulative the ledger knows (after a restart or a refusal). */
   async sync(recipient: string): Promise<bigint> {
     const r = await fetch(`${this.ledgerUrl}/pair/${this.address}/${recipient}`);
     const j = (await r.json()) as { accepted: string };
@@ -34,7 +35,7 @@ export class Agent {
     return c;
   }
 
-  /** Onbellekteki kumulatif uzerinden imzali fis. Sadece olcum scripti (limits.ts) kullanir. */
+  /** Signed voucher on top of the cached cumulative. Only the measurement script (limits.ts) uses it. */
   voucher(recipient: string, amount: bigint) {
     const cumulative = (this.cum.get(recipient) ?? 0n) + amount;
     const sig = P.signHex(this.key, P.voucherHash(this.hub, this.address, recipient, cumulative));

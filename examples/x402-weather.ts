@@ -1,11 +1,11 @@
-// Gercek x402 v2: RESMI paketler, bizim sema.
+// Real x402 v2: the OFFICIAL packages, our scheme.
 //
-//   - Hava durumu servisi: @x402/express paymentMiddleware. Servis SAF ALICI:
-//     zincirde kaydi yok, hesap bile acilmadi, sadece bir adres.
-//   - Ajan: @x402/fetch wrapFetchWithPayment. Normal fetch kullaniyor.
-//   - Facilitator: golge defter (/supported, /settle).
+//   - Weather service: @x402/express paymentMiddleware. The service is a PURE
+//     RECIPIENT: not registered on chain, no account opened, just an address.
+//   - Agent: @x402/fetch wrapFetchWithPayment. It uses plain fetch.
+//   - Facilitator: the shadow ledger (/supported, /settle).
 //
-// Defter calisirken:  node examples/x402-weather.ts
+// With the ledger running:  node examples/x402-weather.ts
 
 import express from "express";
 import { Keypair } from "@stellar/stellar-sdk";
@@ -17,8 +17,8 @@ import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NET
 import { newAgent, track, settleNow, ledgerState, chain, dep, fmt, LEDGER, U } from "../demo/testnet.ts";
 import { A } from "@golge-defter/sdk/chain";
 
-// ---------------- hizmet satan taraf ----------------
-const SERVICE = Keypair.random().publicKey(); // hesap bile acilmadi
+// ---------------- selling side (service) ----------------
+const SERVICE = Keypair.random().publicKey(); // no account opened
 
 const resourceServer = new x402ResourceServer(new HTTPFacilitatorClient({ url: LEDGER })).register(
   NETWORK,
@@ -31,7 +31,7 @@ app.use(
     {
       "GET /weather": {
         accepts: { scheme: SCHEME, network: NETWORK, payTo: SERVICE, price: "0.02" },
-        description: "Istanbul hava durumu",
+        description: "Istanbul weather",
       },
     },
     resourceServer,
@@ -42,13 +42,13 @@ app.get("/weather", (_req, res) => {
 });
 const srv = app.listen(8790);
 
-// ---------------- ajan yazan taraf ----------------
-const me = await newAgent("ajan", 5n * U);
-await track([me.address], { [me.address]: "ajan", [SERVICE]: "hava-servisi" });
+// ---------------- paying side (agent) ----------------
+const me = await newAgent("agent", 5n * U);
+await track([me.address], { [me.address]: "agent", [SERVICE]: "weather-service" });
 
 const client = new x402Client()
   .register(NETWORK, new BatchSettlementStellarClient(me.agent))
-  // x402'nin kendi harcama kontrolu: bu token, istek basina en fazla 0.10
+  // x402's own spend control: this token, at most 0.10 per request
   .setSpendControls({ allowedAssets: [{ network: NETWORK, asset: dep.token, maxAmountPerPayment: String(U / 10n) }] });
 const fetchPaid = wrapFetchWithPayment(fetch, client);
 
@@ -60,17 +60,17 @@ for (let i = 0; i < 10; i++) {
   console.log(r.status, JSON.stringify(body), settle ? `settle: success=${settle.success} seq=${settle.extra?.seq}` : "");
 }
 
-// ---------------- sonuc ----------------
+// ---------------- result ----------------
 const st = await ledgerState();
 const view = (a: string) => st.participants.find((p: any) => p.address === a);
-console.log(`\najan harcanabilir: ${fmt(view(me.address).spendable)}  (5.00 - 10 x 0.02)`);
-console.log(`servis bekleyen alacak: ${fmt(view(SERVICE).pendingIn)}  zincir islemi: 0`);
+console.log(`\nagent spendable: ${fmt(view(me.address).spendable)}  (5.00 - 10 x 0.02)`);
+console.log(`service pending incoming: ${fmt(view(SERVICE).pendingIn)}  on-chain transactions: 0`);
 
 await settleNow();
-console.log(`parti: https://stellar.expert/explorer/testnet/tx/${(await ledgerState()).stats.lastBatchTx}`);
+console.log(`batch: https://stellar.expert/explorer/testnet/tx/${(await ledgerState()).stats.lastBatchTx}`);
 
-// PASIF ALICI: servis hicbir sey yapmadan parasini aliyor. Izinsiz itme.
+// PASSIVE RECIPIENT: the service gets paid without doing anything. Permissionless push.
 await chain.invoke(me.kp, "payout", [A.addr(SERVICE)]);
-console.log(`servisin cuzdani: ${fmt(await chain.tokenBalance(SERVICE))}  (hic imza atmadi)`);
+console.log(`service wallet: ${fmt(await chain.tokenBalance(SERVICE))}  (never signed anything)`);
 srv.close();
 process.exit(0);

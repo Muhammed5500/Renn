@@ -1,8 +1,8 @@
-// Gizli giris, ajan (F) tarafi. F'nin XLM'i yok ve hic olmayacak: hesabini
-// relayer sponsorlar, islem ucretlerini relayer oder. F'nin zincirdeki hicbir
-// izi, SPP havuzuna yatiran bilinen cuzdana (W) gitmez.
+// Private entry, agent (F) side. F has no XLM and never will: the relayer
+// sponsors its account and pays its transaction fees. None of F's traces on
+// chain lead back to the known wallet (W) that deposited into the SPP pool.
 //
-// SPP adimi (W -> havuz -> F) resmi SPP CLI ile yapilir, bkz. spp-shim/.
+// The SPP step (W -> pool -> F) runs through the official SPP CLI, see spp.ts and spp-shim/.
 
 import { randomBytes } from "node:crypto";
 import { Contract, Keypair, TransactionBuilder, type xdr } from "@stellar/stellar-sdk";
@@ -18,15 +18,15 @@ async function post(url: string, body: unknown) {
   return j;
 }
 
-/** F'yi 0 XLM ile ac. Rezervi relayer sponsorlar; F sadece kendi kismini imzalar. */
+/** Open F with 0 XLM. The relayer sponsors the reserve; F signs only its own part. */
 export async function openSponsored(relayUrl: string, f: Keypair, chain: Chain) {
   const { xdr: x } = await post(`${relayUrl}/relay/account`, { address: f.publicKey() });
   const tx = TransactionBuilder.fromXDR(x, chain.cfg.passphrase);
   tx.sign(f);
-  return chain.submit(tx, "hesap ac");
+  return chain.submit(tx, "open account");
 }
 
-/** F'nin kasa islemi (join, deposit), ucreti relayer oder (fee-bump). */
+/** F's vault call (join, deposit); the relayer pays the fee (fee-bump). */
 export async function relayedInvoke(relayUrl: string, f: Keypair, chain: Chain, method: string, args: xdr.ScVal[]) {
   const acct = await chain.server.getAccount(f.publicKey());
   let tx = new TransactionBuilder(acct, { fee: "100", networkPassphrase: chain.cfg.passphrase })
@@ -36,7 +36,7 @@ export async function relayedInvoke(relayUrl: string, f: Keypair, chain: Chain, 
   tx = await chain.server.prepareTransaction(tx);
   tx.sign(f);
   const { hash } = await post(`${relayUrl}/relay/fee-bump`, { xdr: tx.toXDR() });
-  // relayer bekleyip dondu; okuma tabanini bu islemin ledger'ina tasimak icin
+  // the relayer waited for the result; fetch it to raise the read floor to this transaction's ledger
   const res = await chain.server.getTransaction(hash);
   if ("ledger" in res && res.ledger) chain.observe(res.ledger);
   return { hash };

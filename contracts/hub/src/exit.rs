@@ -1,21 +1,22 @@
-//! Cikis ve cekim. UC YOL, KARISTIRMA:
+//! Exit and withdrawal. THREE PATHS, DON'T MIX THEM UP:
 //!
-//! | Yol | Kim | Sart |
+//! | Path | Who | Condition |
 //! |---|---|---|
-//! | `withdraw_approved` | kayitli katilimci | operator onayi. ANINDA, kismi olabilir |
-//! | `withdraw` (exit)   | kayitli katilimci | exit_start + exit_delay. KACIS YOLU, operatorsuz |
-//! | `withdraw` (free)   | kayitsiz alici    | yok. Aldigi para kesin, bekletmek icin sebep yok |
-//! | `payout`            | kayitsiz alici    | izinsiz itme, para yine sahibine gider |
+//! | `withdraw_approved` | registered participant  | operator approval. INSTANT, can be partial |
+//! | `withdraw` (exit)   | registered participant  | exit_start + exit_delay. ESCAPE HATCH, no operator |
+//! | `withdraw` (free)   | unregistered recipient  | none. What it received is final, no reason to wait |
+//! | `payout`            | unregistered recipient  | permissionless push, the money still goes to its owner |
 //!
-//! Neden kayitli katilimci operatorsuz ANINDA cekemiyor: imzaladigi ama henuz
-//! uzlasmamis fisler olabilir. Operator bunlari bildigi icin onay vermeden
-//! once uzlastirir. Operator yoksa exit_delay alicilara bu zamani taniyor.
+//! Why a registered participant cannot withdraw INSTANTLY without the
+//! operator: it may have signed vouchers that are not settled yet. The
+//! operator knows them and settles them before approving. Without the
+//! operator, exit_delay gives the recipients that time.
 //!
-//! DEGISMEZ: `settle_*` cikis ilan edildikten SONRA da calisir. Bunu engelleyen
-//! bir kontrol YAZMA.
+//! INVARIANT: `settle_*` keeps working AFTER an exit is announced. Do NOT add
+//! a check that blocks it.
 //!
-//! SPP KURALI (plan par.11, madde 5): para HER ZAMAN `who`'ya gider. Alternatif
-//! adres parametresi EKLEME.
+//! SPP RULE (plan section 11, item 5): the money ALWAYS goes to `who`. Do NOT
+//! add an alternative address parameter.
 
 use soroban_sdk::{symbol_short, token, Address, BytesN, Env, Symbol};
 
@@ -24,12 +25,12 @@ use crate::events;
 use crate::storage as st;
 use crate::voucher;
 
-/// Cikis ilani. Sayaci baslatir.
-/// Golge defter bu olayi gorunce odeyeni kabul etmeyi keser ve bekleyen
-/// fislerini hemen uzlastirir.
+/// Exit announcement. Starts the countdown.
+/// When the shadow ledger sees this event it stops accepting the payer's
+/// vouchers and settles the pending ones right away.
 pub fn exit_start(e: &Env, who: &Address) -> Result<(), Error> {
     if st::get_exit_at(e, who).is_some() {
-        return Ok(()); // tekrar cagirmak zararsiz, sayac ilerlemesin
+        return Ok(()); // calling again is harmless; the countdown must not move
     }
     let at = e.ledger().sequence();
     st::set_exit_at(e, who, at);
@@ -56,7 +57,7 @@ fn send(e: &Env, who: &Address, amount: i128, path: Symbol) -> Result<i128, Erro
     Ok(amount)
 }
 
-/// Operator onayli, ANINDA cekim. Sadece kayitli katilimci.
+/// INSTANT withdrawal approved by the operator. Registered participants only.
 pub fn withdraw_approved(
     e: &Env,
     who: &Address,
@@ -65,7 +66,7 @@ pub fn withdraw_approved(
     op_sig: &BytesN<64>,
 ) -> Result<i128, Error> {
     if st::get_signer(e, who).is_none() {
-        return Err(Error::NotJoined); // kayitsiz olan withdraw kullanir
+        return Err(Error::NotJoined); // unregistered recipients use withdraw
     }
     if amount <= 0 {
         return Err(Error::BadAmount);
@@ -82,8 +83,9 @@ pub fn withdraw_approved(
     send(e, who, amount, symbol_short!("approved"))
 }
 
-/// Operatorsuz cekim, butun bakiye.
-/// Kayitsiz alici: aninda. Kayitli katilimci: exit_start + exit_delay.
+/// Withdrawal without the operator, the whole balance.
+/// Unregistered recipient: immediately. Registered participant:
+/// exit_start + exit_delay.
 pub fn withdraw(e: &Env, who: &Address) -> Result<i128, Error> {
     let b = st::get_balance(e, who);
     if b == 0 {
@@ -100,9 +102,9 @@ pub fn withdraw(e: &Env, who: &Address) -> Result<i128, Error> {
     send(e, who, b, symbol_short!("exit"))
 }
 
-/// PASIF ALICI. Izinsiz, parayi sahibine iter. Alici hicbir sey kurmadan,
-/// sadece bir cuzdan adresi olarak para alabilir.
-/// Kayitli katilimci icin calismaz, cikis kapisini atlatirdi.
+/// PASSIVE RECIPIENT. Permissionless, pushes the money to its owner. A
+/// recipient can receive money with nothing set up, as just a wallet address.
+/// Does not work for registered participants: it would bypass the exit gate.
 pub fn payout(e: &Env, who: &Address) -> Result<i128, Error> {
     if st::get_signer(e, who).is_some() {
         return Err(Error::NotPushable);

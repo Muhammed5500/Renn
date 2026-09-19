@@ -1,5 +1,6 @@
-// Kontrol 6: otomatik parti modu. Defter AUTO_SETTLE=1 (varsayilan) ile
-// calisirken kimse /settle cagirmadan her turda (ROUND_MS) parti gondermeli.
+// Check 6: automatic batch mode. With the ledger running with AUTO_SETTLE=1
+// (the default), it must send a batch every round (ROUND_MS) without anyone
+// calling /settle.
 //
 //   ROUND_MS=30000 npm start
 //   node demo/check-auto.ts
@@ -7,12 +8,12 @@
 import { newAgent, track, ledgerState, chain, U, pay } from "./testnet.ts";
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const [a, b] = await Promise.all([newAgent("otoA", 10n * U), newAgent("otoB", 0n, { join: false })]);
-await track([a.address, b.address], { [a.address]: "otoA", [b.address]: "otoB" });
+const [a, b] = await Promise.all([newAgent("autoA", 10n * U), newAgent("autoB", 0n, { join: false })]);
+await track([a.address, b.address], { [a.address]: "autoA", [b.address]: "autoB" });
 
 const b0 = (await ledgerState()).stats.batches;
 for (let i = 0; i < 5; i++) await pay(a, b.address, U);
-console.log(`5 odeme kabul edildi, uzlasmamis: ${(await ledgerState()).unsettled}. /settle CAGRILMIYOR, bekleniyor...`);
+console.log(`5 payments accepted, unsettled: ${(await ledgerState()).unsettled}. NOT calling /settle, waiting...`);
 
 const t = Date.now();
 for (;;) {
@@ -20,12 +21,12 @@ for (;;) {
   const st = await ledgerState();
   const paid = await chain.paidBetween(a.address, b.address);
   if (st.stats.batches > b0 && paid === 5n * U) {
-    console.log(`defter kendi basina uzlastirdi (${Math.round((Date.now() - t) / 1000)} sn): https://stellar.expert/explorer/testnet/tx/${st.stats.lastBatchTx}`);
-    console.log("KONTROL 6 GECTI");
+    console.log(`the ledger settled on its own (${Math.round((Date.now() - t) / 1000)} s): https://stellar.expert/explorer/testnet/tx/${st.stats.lastBatchTx}`);
+    console.log("CHECK 6 PASSED");
     process.exit(0);
   }
   if (Date.now() - t > 75_000) {
-    console.error(`HATA: 75 sn icinde parti gitmedi (parti ${st.stats.batches}, uzlasmamis ${st.unsettled})`);
+    console.error(`ERROR: no batch within 75 s (batches ${st.stats.batches}, unsettled ${st.unsettled})`);
     process.exit(1);
   }
 }

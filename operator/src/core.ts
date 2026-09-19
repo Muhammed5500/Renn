@@ -1,22 +1,23 @@
-// ADIM D2 - Golge defterin beyni. SAF MANTIK.
+// STEP D2 - The shadow ledger's brain. PURE LOGIC.
 //
-// Ag cagrisi yok, saat okumasi yok, kripto yok. Imza kontrolu disaridan
-// parametre olarak gelir. Ayni girdiye her zaman ayni
-// cevap. Bu dosya ileride ZK devresinin sartnamesi olacak (plan par.11).
+// No network calls, no clock reads, no crypto. Signature checks come in as a
+// parameter. The same input always gives the same answer. This file is meant
+// to become the spec of a ZK circuit later (plan par.11).
 //
-// Plan: PLAN-golge-defter.md (repo disinda, Proje/'nin bir ustunde) par.3.
+// Plan: PLAN-golge-defter.md (outside the repo, one level above Proje/) par.3.
 //
-// TEK KURAL (plan par.3.1):
+// THE ONE RULE (plan par.3.1):
 //
-//   harcanabilir(x) = zincir_bakiyesi(x) - ayrilmis_cekim(x)
-//                   + SUM uzlasmamis_gelen(x) - SUM uzlasmamis_giden(x)
+//   spendable(x) = onchain_balance(x) - reserved_withdrawals(x)
+//                + SUM unsettled_incoming(x) - SUM unsettled_outgoing(x)
 //
-// Uzlasmamis tutarlar cift bazinda tutulur:
-//   bekleyen(payer, recipient) = son_kabul_kumulatif - zincirde_odenen
+// Unsettled amounts are kept per pair:
+//   pending(payer, recipient) = last_accepted_cumulative - paid_onchain
 //
-// Gelen para ANINDA sayilir: geri alma yok, kabul edilmis her fis karsilikli.
+// Incoming money counts IMMEDIATELY: there is no clawback, and every accepted
+// voucher is backed.
 //
-// Tutarlar bigint, 7 ondalik. number KULLANMA.
+// Amounts are bigint, 7 decimals. Do NOT use number.
 
 export type Addr = string;
 
@@ -24,16 +25,16 @@ export type VoucherIn = {
   payer: Addr;
   recipient: Addr;
   cumulative: bigint;
-  /** odeyenin imzasi, hex */
+  /** payer's signature, hex */
   sig: string;
 };
 
-/** Kabul edilmis fis. Kabul sirasinin bir halkasi. */
+/** An accepted voucher. One link in the acceptance order. */
 export type Entry = VoucherIn & {
   seq: number;
-  /** bu kabulun getirdigi fark */
+  /** the increase this acceptance adds */
   delta: bigint;
-  /** operatorun kabul imzasi, hex. Cekirdek imzalamaz, sunucu doldurur. */
+  /** operator's acceptance signature, hex. The core does not sign; the server fills it in. */
   opSig?: string;
 };
 
@@ -51,7 +52,7 @@ export type AcceptResult =
   | { ok: false; reason: Refusal };
 
 export type Ctx = {
-  /** odeyenin imzasini dogrular. Cekirdek kripto bilmez. */
+  /** verifies the payer's signature. The core knows no crypto. */
   verifySig: (v: VoucherIn, signerHex: string) => boolean;
 };
 
@@ -65,7 +66,7 @@ export type BatchItem = {
 
 export type Batch = {
   items: BatchItem[];
-  /** bu parti kabul sirasinda bu seq'e kadar olan her seyi kapsiyor */
+  /** this batch covers everything up to this seq in the acceptance order */
   uptoSeq: number;
 };
 
@@ -73,34 +74,34 @@ export type Reservation = {
   who: Addr;
   amount: bigint;
   validUntil: number;
-  /** cekim isteginin nonce'u: ayni istek iki kez ayirma yapamaz */
+  /** withdrawal request nonce: the same request cannot reserve twice */
   nonce?: bigint;
 };
 
 const pk = (payer: Addr, recipient: Addr) => `${payer}|${recipient}`;
 
 export class LedgerCore {
-  /** son kabul edilen sira numarasi */
+  /** last accepted sequence number */
   seq = 0;
 
-  // ---- zincirden gelen gercekler ----
+  // ---- facts from the chain ----
   balances = new Map<Addr, bigint>();
   signers = new Map<Addr, string>();
   exiting = new Set<Addr>();
-  /** zincirdeki paid_between */
+  /** paid_between on chain */
   settledCum = new Map<string, bigint>();
 
-  // ---- defterin kendi durumu ----
-  /** cift basina son kabul edilen kumulatif */
+  // ---- the ledger's own state ----
+  /** last accepted cumulative per pair */
   lastCum = new Map<string, bigint>();
-  /** uzlasmamis kabuller, seq sirali. Onek parti buradan kesilir. */
+  /** unsettled acceptances, in seq order. Prefix batches are cut from here. */
   entries: Entry[] = [];
-  /** cekim onayi icin ayrilmis tutarlar */
+  /** amounts reserved for withdrawal approval */
   reservations: Reservation[] = [];
-  /** zincire gonderilmis ama sonucu gelmemis parti */
+  /** batch sent to the chain whose result has not arrived yet */
   inflight: Batch | null = null;
 
-  // ================= okuma =================
+  // ================= reads =================
 
   balance(x: Addr): bigint {
     return this.balances.get(x) ?? 0n;
@@ -110,7 +111,7 @@ export class LedgerCore {
     return this.settledCum.get(pk(payer, recipient)) ?? 0n;
   }
 
-  /** son kabul edilen kumulatif (zincirdekinden asagi olamaz) */
+  /** last accepted cumulative (never below the on-chain value) */
   accepted(payer: Addr, recipient: Addr): bigint {
     const a = this.lastCum.get(pk(payer, recipient)) ?? 0n;
     const s = this.paid(payer, recipient);
@@ -123,7 +124,7 @@ export class LedgerCore {
     return r;
   }
 
-  /** x'in uzlasmamis giden ve gelen toplamlari */
+  /** x's unsettled outgoing and incoming totals */
   pending(x: Addr): { out: bigint; in: bigint } {
     let out = 0n;
     let inn = 0n;
@@ -138,9 +139,10 @@ export class LedgerCore {
   }
 
   /**
-   * Parti tetikleyicileri icin ozet: uzlasmamis FARKLI cift sayisi (islem
-   * basina sinir cift sayisiyla, fis sayisiyla degil), uzlasmamis toplam
-   * tutar ve en cok bekleyen alacagi olan alici. Ucustaki parti dahil.
+   * Summary for the batch triggers: number of DISTINCT unsettled pairs (the
+   * per-transaction limit counts pairs, not vouchers), total unsettled
+   * amount, and the recipient with the largest pending amount. Includes the
+   * batch in flight.
    */
   unsettledSummary(): { pairs: number; total: bigint; topRecipient: Addr | null; topRecipientAmount: bigint } {
     let pairs = 0;
@@ -170,19 +172,20 @@ export class LedgerCore {
     return this.balance(x) - this.reserved(x) + p.in - p.out;
   }
 
-  // ================= kabul (plan par.3.2) =================
+  // ================= acceptance (plan par.3.2) =================
 
   /**
-   * Fisi kabul eder ya da sebebiyle reddeder. Kabulde durum guncellenir.
+   * Accepts the voucher or refuses it with a reason. State is updated on acceptance.
    *
-   * KONTROL VE GUNCELLEME AYNI SENKRON BLOKTA. Arada await olursa iki fis
-   * ayni harcanabilir bakiyeyi gorur ve cift harcama geri gelir (par.3.3).
+   * CHECK AND UPDATE IN THE SAME SYNCHRONOUS BLOCK. With an await in between,
+   * two vouchers would see the same spendable balance and double spending
+   * would come back (par.3.3).
    */
   accept(v: VoucherIn, ctx: Ctx): AcceptResult {
     const e = this.evaluate(v, ctx);
     if (!e.ok) return e;
 
-    // ---- kabul ----
+    // ---- accept ----
     this.seq += 1;
     const entry: Entry = { ...v, seq: this.seq, delta: e.delta };
     this.entries.push(entry);
@@ -191,8 +194,8 @@ export class LedgerCore {
   }
 
   /**
-   * accept()'in kontrollerinin HICBIR SEY DEGISTIRMEYEN hali. x402'nin
-   * /verify ucu bunu kullanir (spec: verify salt okunur olmali).
+   * accept()'s checks, CHANGING NOTHING. x402's /verify endpoint uses this
+   * (spec: verify must be read-only).
    */
   evaluate(v: VoucherIn, ctx: Ctx): { ok: true; delta: bigint } | { ok: false; reason: Refusal } {
     const signer = this.signers.get(v.payer);
@@ -212,15 +215,16 @@ export class LedgerCore {
     return { ok: true, delta };
   }
 
-  // ================= parti (plan par.3.4) =================
+  // ================= batches (plan par.3.4) =================
 
   /**
-   * Kabul sirasinin ONEKINI parti olarak keser. Her cift icin onekin icindeki
-   * en son kumulatif gider. Parti en fazla maxPairs cift icerir.
+   * Cuts a PREFIX of the acceptance order as a batch. For each pair, the
+   * latest cumulative within the prefix is sent. A batch holds at most
+   * maxPairs pairs.
    *
-   * ONEK DISI PARTI KURMA: her fis kendinden onceki butun kabullerin
-   * durumuna gore kontrol edildi, o yuzden sadece onekler odeme gucu
-   * acisindan gecerli. Zincirdeki sabit nokta dongusu o zaman kimseyi elemez.
+   * NEVER BUILD A NON-PREFIX BATCH: each voucher was checked against the state
+   * after all earlier acceptances, so only prefixes are guaranteed solvent.
+   * Then the on-chain fixed-point loop never drops anyone.
    */
   cutBatch(maxPairs: number): Batch | null {
     const latest = new Map<string, Entry>();
@@ -235,7 +239,7 @@ export class LedgerCore {
     if (latest.size === 0) return null;
     const items: BatchItem[] = [];
     for (const e of latest.values()) {
-      if (!e.opSig) throw new Error(`seq ${e.seq} operator imzasi yok`);
+      if (!e.opSig) throw new Error(`seq ${e.seq} has no operator signature`);
       items.push({
         payer: e.payer,
         recipient: e.recipient,
@@ -247,28 +251,28 @@ export class LedgerCore {
     return { items, uptoSeq: upto };
   }
 
-  /** Parti zincire gonderildi. Harcanabilir DEGISMEZ, sadece isaret. */
+  /** Batch sent to the chain. Spendable does NOT change; this is only a marker. */
   markInflight(b: Batch): void {
-    if (this.inflight) throw new Error("zaten ucusta bir parti var");
+    if (this.inflight) throw new Error("a batch is already in flight");
     this.inflight = b;
   }
 
-  /** Parti basarisiz oldu: isareti kaldir, fisler sonraki partide denenir. */
+  /** Batch failed: clear the marker; the vouchers go into the next batch. */
   batchFailed(): void {
     this.inflight = null;
   }
 
   /**
-   * Parti zincirde uygulandi. Uzlasmamis tutarlar bakiyeye tasinir;
-   * harcanabilir hic kimse icin degismez (test: ucustaki_parti).
+   * Batch applied on chain. Unsettled amounts move into balances; nobody's
+   * spendable changes (test: batch_in_flight).
    */
   batchSettled(): void {
     const b = this.inflight;
-    if (!b) throw new Error("ucusta parti yok");
+    if (!b) throw new Error("no batch in flight");
     for (const it of b.items) {
       const key = pk(it.payer, it.recipient);
       const before = this.settledCum.get(key) ?? 0n;
-      if (it.cumulative <= before) continue; // disaridan zaten uzlastirilmis
+      if (it.cumulative <= before) continue; // already settled from outside
       const d = it.cumulative - before;
       this.balances.set(it.payer, this.balance(it.payer) - d);
       this.balances.set(it.recipient, this.balance(it.recipient) + d);
@@ -279,38 +283,38 @@ export class LedgerCore {
     this.gc();
   }
 
-  /** Tamamen uzlasmis ciftlerin kaydini temizle. */
+  /** Drop the records of fully settled pairs. */
   private gc(): void {
     for (const [key, cum] of this.lastCum) {
       if (cum <= (this.settledCum.get(key) ?? 0n)) this.lastCum.delete(key);
     }
   }
 
-  // ================= zincirden gelenler (plan par.D4) =================
+  // ================= from the chain (plan par.D4) =================
 
   setSigner(x: Addr, pubHex: string): void {
     this.signers.set(x, pubHex);
   }
 
-  /** Deposited olayi. Bakiye sadece artar. */
+  /** Deposited event. The balance only goes up. */
   deposited(x: Addr, amount: bigint): void {
     this.balances.set(x, this.balance(x) + amount);
   }
 
-  /** ExitStarted olayi: bu odeyeni artik kabul etme. */
+  /** ExitStarted event: stop accepting this payer. */
   markExiting(x: Addr): void {
     this.exiting.add(x);
   }
 
   /**
-   * Zincirin gercegi. Bakiyeleri ve cift sayaclarini zincirden alir.
-   * Disaridan (kacis yolu, settle_one) uzlastirilmis fislerin kaydi da
-   * boylece duser. Ucusta parti varken CAGIRMA.
+   * The chain's truth. Takes balances and pair counters from the chain.
+   * Records of vouchers settled from outside (escape hatch, settle_one) are
+   * dropped this way too. Do NOT call while a batch is in flight.
    */
   reconcile(balances: Map<Addr, bigint>, paid: Map<string, bigint>): void {
-    if (this.inflight) throw new Error("ucusta parti varken reconcile yok");
+    if (this.inflight) throw new Error("no reconcile while a batch is in flight");
     for (const [x, b] of balances) this.balances.set(x, b);
-    // Zincirdeki paid_between monoton: daha kucuk bir okuma eskidir, yok say.
+    // paid_between on chain is monotonic: a smaller reading is stale, ignore it.
     for (const [key, p] of paid) {
       if (p > (this.settledCum.get(key) ?? 0n)) this.settledCum.set(key, p);
     }
@@ -320,15 +324,16 @@ export class LedgerCore {
     this.gc();
   }
 
-  // ================= cekim onayi (plan par.3.6) =================
+  // ================= withdrawal approval (plan par.3.6) =================
 
   /**
-   * Cekim icin para ayirir. Bu andan itibaren yeni fisler bu parayi
-   * harcayamaz. Harcanabilir bakiyenin icindeki her tutar ayrilabilir.
+   * Reserves money for a withdrawal. From now on new vouchers cannot spend
+   * it. Any amount within the spendable balance can be reserved.
    *
-   * Ayirmadan sonra canApprove() dogruysa sunucu onayi HEMEN imzalar (yaygin
-   * durum, parti yok). Degilse cekimin bir kismi henuz gelmemis paradan
-   * olusuyor: sunucu olagan partiyi bekler, sonra imzalar.
+   * If canApprove() is true after reserving, the server signs the approval
+   * IMMEDIATELY (the common case, no batch). Otherwise part of the withdrawal
+   * is money that has not arrived yet: the server waits for the regular
+   * batch, then signs.
    */
   reserve(who: Addr, amount: bigint, validUntil: number, nonce?: bigint): Refusal | "duplicate_request" | null {
     if (!this.signers.has(who)) return "not_joined";
@@ -342,12 +347,14 @@ export class LedgerCore {
   }
 
   /**
-   * Partisiz, SIMDI cekilebilecek tutar: zincirdeki bakiye eksi verdigi ama
-   * uzlasmamis fisler eksi ayrilmis cekimler. Gelmesi beklenen para (gelen
-   * fisler) SAYILMAZ: o para zincirde hala odeyenin bakiyesinde duruyor.
+   * Amount withdrawable NOW, without a batch: on-chain balance minus the
+   * unsettled vouchers it gave, minus reserved withdrawals. Money still to
+   * arrive (incoming vouchers) does NOT count: on chain it is still in the
+   * payer's balance.
    *
-   * Bu tutara kadar cekim guvenli: cekimden sonra kasada en az verdigi
-   * fislerin toplami kaliyor, o fisler hangi partiye girerse girsin odenir.
+   * Withdrawing up to this amount is safe: afterwards the vault still holds
+   * at least the total of the vouchers it gave, and those get paid whichever
+   * batch they go into.
    */
   withdrawableNow(x: Addr): bigint {
     const w = this.balance(x) - this.reserved(x) - this.pending(x).out;
@@ -355,40 +362,40 @@ export class LedgerCore {
   }
 
   /**
-   * x'in ayrilmis cekimlerinin hepsi zincirdeki bakiyesiyle karsilaniyor mu.
-   * Evetse operator onayi PARTI BEKLEMEDEN imzalanabilir.
+   * Are all of x's reserved withdrawals covered by its on-chain balance?
+   * If so, the operator approval can be signed WITHOUT WAITING FOR A BATCH.
    */
   canApprove(x: Addr): boolean {
     return this.balance(x) - this.reserved(x) - this.pending(x).out >= 0n;
   }
 
-  /** Onay hic verilemeyecekse (sure doldu, bekleme bitti) ayirmayi geri al. */
+  /** If the approval can never be given (expired, wait over), undo the reservation. */
   release(who: Addr, amount: bigint): void {
     const i = this.reservations.findIndex((r) => r.who === who && r.amount === amount);
     if (i >= 0) this.reservations.splice(i, 1);
   }
 
-  /** Withdrawn olayi (path: approved). Bakiye ve ayrilan tutar birlikte duser. */
+  /** Withdrawn event (path: approved). Balance and reservation drop together. */
   withdrawn(who: Addr, amount: bigint): void {
     this.balances.set(who, this.balance(who) - amount);
     const i = this.reservations.findIndex((r) => r.who === who && r.amount === amount);
     if (i >= 0) this.reservations.splice(i, 1);
   }
 
-  /** Suresi dolmus, kullanilmamis ayirmalari serbest birak. */
+  /** Release expired, unused reservations. */
   expireReservations(ledger: number): void {
     this.reservations = this.reservations.filter((r) => r.validUntil >= ledger);
   }
 
-  // ================= kalicilik =================
+  // ================= persistence =================
 
   /**
-   * Log'dan geri yukleme: daha once KABUL EDILMIS bir kaydi kontrolsuz geri
-   * koyar. Zincirde zaten uzlasmis olanlar sessizce atlanir. Sadece sunucu
-   * acilisinda, zincir durumu yuklendikten SONRA cagir.
+   * Restore from the log: puts back a previously ACCEPTED record without
+   * checks. Records already settled on chain are skipped silently. Call only
+   * at server startup, AFTER the chain state is loaded.
    */
   restore(e: Entry): void {
-    if (this.entries.some((x) => x.seq === e.seq)) return; // iki kez yukleme zararsiz
+    if (this.entries.some((x) => x.seq === e.seq)) return; // loading twice is harmless
     if (e.seq > this.seq) this.seq = e.seq;
     if (e.cumulative <= this.paid(e.payer, e.recipient)) return;
     this.entries.push(e);

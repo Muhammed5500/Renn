@@ -1,11 +1,11 @@
 #![cfg(test)]
-//! ADIM R3 - uzlasma ve coktan coga netlestirme.
+//! STEP R3 - settlement and many-to-many netting.
 
 use super::*;
 use crate::test::*;
 use soroban_sdk::{testutils::Address as _, vec, Vec};
 
-// ================= tek fis =================
+// ================= single voucher =================
 
 #[test]
 fn test_settle_moves_internal_balance() {
@@ -24,8 +24,8 @@ fn test_settle_does_not_transfer_tokens() {
     let (p, k) = f.payer(1, 500);
     let r = Address::generate(&f.e);
     f.hub.settle_one(&r, &f.voucher(&p, &k, &r, 100));
-    assert_eq!(f.token.balance(&f.hub_addr), 500, "kasa kipirdamadi");
-    assert_eq!(f.token.balance(&r), 0, "alicinin cuzdanina bir sey gitmedi");
+    assert_eq!(f.token.balance(&f.hub_addr), 500, "the vault did not move");
+    assert_eq!(f.token.balance(&r), 0, "nothing went to the recipient's wallet");
 }
 
 #[test]
@@ -70,7 +70,7 @@ fn test_self_payment_fails() {
     );
 }
 
-/// p1->r ve p2->r sayaclari birbirinden bagimsiz.
+/// The p1->r and p2->r counters are independent of each other.
 #[test]
 fn test_pair_isolation() {
     let f = setup();
@@ -108,8 +108,9 @@ fn test_anyone_can_settle() {
     assert_eq!(f.hub.balance_of(&r), 100);
 }
 
-/// 10.000 ledger once imzalanmis fis hala gecerli. v3.2'de fis tur
-/// numarasi tasiyordu ve ~60 sn sonra oluyordu (onceki analizde 5 numara).
+/// A voucher signed 10,000 ledgers ago is still valid. In v3.2 the voucher
+/// carried an epoch number and expired after ~60 s (item 5 in the earlier
+/// analysis).
 #[test]
 fn test_old_voucher_still_settles() {
     let f = setup();
@@ -120,7 +121,7 @@ fn test_old_voucher_still_settles() {
     assert_eq!(f.hub.settle_one(&r, &v), 100);
 }
 
-// ================= coktan coga netlestirme =================
+// ================= many-to-many netting =================
 
 #[test]
 fn test_batch_settles_all() {
@@ -142,17 +143,17 @@ fn test_batch_settles_all() {
     assert_eq!(out.settled, vs.len());
     assert_eq!(out.stale, 0);
     assert_eq!(out.skipped.len(), 0);
-    // her odeyen 4 aliciya (i+1)*10 odedi
+    // each payer paid (i+1)*10 to 4 recipients
     for i in 0..5u32 {
         let p = payers.get_unchecked(i);
         assert_eq!(f.hub.balance_of(&p), 1000 - 4 * 10 * (i as i128 + 1));
     }
-    assert_eq!(f.token.balance(&f.hub_addr), 5000, "kasa kipirdamadi");
+    assert_eq!(f.token.balance(&f.hub_addr), 5000, "the vault did not move");
 }
 
-/// SUNUMUN DEMOSU (Sahne 1). A->B 100, B->C 90, C->A 80.
-/// A'nin kasasinda SADECE 20 var, B ve C'nin hic yok. Parti geciyor.
-/// ASLA GEVSETME.
+/// THE PITCH DEMO (Scene 1). A->B 100, B->C 90, C->A 80.
+/// A has ONLY 20 in the vault, B and C have nothing. The batch passes.
+/// NEVER RELAX THIS.
 #[test]
 fn test_circular_debt_nets() {
     let f = setup();
@@ -172,10 +173,10 @@ fn test_circular_debt_nets() {
     assert_eq!(f.hub.balance_of(&a), 0);
     assert_eq!(f.hub.balance_of(&b), 10);
     assert_eq!(f.hub.balance_of(&c), 10);
-    assert_eq!(f.token.balance(&f.hub_addr), 20, "270 birim borc, 0 token hareketi");
+    assert_eq!(f.token.balance(&f.hub_addr), 20, "270 units of debt, 0 token movement");
 }
 
-/// Karsiliksiz bir odeyen partiyi dusurmez, sadece kendi fisleri elenir.
+/// An unbacked payer does not fail the batch, only its own vouchers are dropped.
 #[test]
 fn test_insolvent_payer_skipped_only() {
     let f = setup();
@@ -194,24 +195,24 @@ fn test_insolvent_payer_skipped_only() {
     assert_eq!(out.skipped, vec![&f.e, p3.clone()]);
     assert_eq!(out.settled, 2);
     assert_eq!(f.hub.balance_of(&r1), 100);
-    assert_eq!(f.hub.balance_of(&r3), 0, "p3'un alicisi kredilendirilmedi");
+    assert_eq!(f.hub.balance_of(&r3), 0, "p3's recipient was not credited");
     assert_eq!(f.hub.balance_of(&p3), 10);
 }
 
-/// C elenince A da odeyemez hale geliyor. Iki turda sabit noktaya variyor.
+/// Once C is dropped, A can no longer pay either. Reaches the fixed point in two rounds.
 #[test]
 fn test_cascade_skip() {
     let f = setup();
     let (a, ka) = f.payer(1, 0);
-    let (c, kc) = f.payer(3, 0); // hic parasi yok
+    let (c, kc) = f.payer(3, 0); // has no money at all
     let (d, kd) = f.payer(4, 50);
     let b = Address::generate(&f.e);
     let e2 = Address::generate(&f.e);
     let vs = vec![
         &f.e,
-        f.voucher(&c, &kc, &a, 100), // C karsiliksiz
-        f.voucher(&a, &ka, &b, 100), // A, C'den gelecek parayla odeyecekti
-        f.voucher(&d, &kd, &e2, 50), // bagimsiz, gecmeli
+        f.voucher(&c, &kc, &a, 100), // C is unbacked
+        f.voucher(&a, &ka, &b, 100), // A was going to pay with the money coming from C
+        f.voucher(&d, &kd, &e2, 50), // independent, must pass
     ];
     let out = f.hub.settle_batch(&b, &vs);
     assert_eq!(out.skipped.len(), 2);
@@ -240,7 +241,7 @@ fn test_batch_empty_fails() {
     );
 }
 
-/// Imza hatasi hala parti geneli: bu partiyi kuranin hatasi.
+/// A bad signature still fails the whole batch: it is the batch builder's mistake.
 #[test]
 #[should_panic]
 fn test_batch_rejects_bad_signature() {
@@ -254,9 +255,9 @@ fn test_batch_rejects_bad_signature() {
     f.hub.settle_batch(&r, &vs);
 }
 
-/// Bir alici kendi fisini parti gitmeden once `settle_one` ile uzlastiriyor.
-/// v3.2'de bu butun partiyi dusururdu (onceki analizde 4 numara). Artik
-/// o fis atlaniyor, geri kalan parti geciyor. ASLA GEVSETME.
+/// A recipient settles its own voucher with `settle_one` before the batch goes.
+/// In v3.2 this failed the whole batch (item 4 in the earlier analysis). Now
+/// that voucher is skipped and the rest of the batch passes. NEVER RELAX THIS.
 #[test]
 fn test_batch_skips_stale_voucher() {
     let f = setup();
@@ -267,13 +268,13 @@ fn test_batch_skips_stale_voucher() {
     let v1 = f.voucher(&p1, &k1, &r1, 100);
     let v2 = f.voucher(&p2, &k2, &r2, 70);
 
-    f.hub.settle_one(&r1, &v1); // one gecme
+    f.hub.settle_one(&r1, &v1); // jumping ahead
 
     let out = f.hub.settle_batch(&r2, &vec![&f.e, v1, v2]);
     assert_eq!(out.stale, 1);
     assert_eq!(out.settled, 1);
     assert_eq!(out.total, 70);
-    assert_eq!(f.hub.balance_of(&r1), 100, "iki kez odenmedi");
+    assert_eq!(f.hub.balance_of(&r1), 100, "not paid twice");
     assert_eq!(f.hub.balance_of(&r2), 70);
 }
 
@@ -290,8 +291,8 @@ fn test_batch_all_stale_ok() {
     assert_eq!(f.hub.balance_of(&r), 100);
 }
 
-/// Kabul sirasinin oneki: A once B'den aliyor, sonra C'ye oduyor.
-/// A'nin kasasi 0, ama ayni partide aldigi parayla odeyebiliyor.
+/// A prefix of the acceptance order: A first receives from B, then pays C.
+/// A's vault balance is 0, but it can pay with money received in the same batch.
 #[test]
 fn test_incoming_in_same_batch_pays_outgoing() {
     let f = setup();

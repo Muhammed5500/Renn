@@ -1,12 +1,12 @@
 #![no_std]
-//! ADIM 1 - Test token (SEP-41).
+//! STEP 1 - Test token (SEP-41).
 //!
-//! Kendi token'imizi cikariyoruz cunku Circle testnet muslugunun API'si yok
-//! (reCAPTCHA), otomatik test kurulamiyor. Kendi token'imizla trustline derdi
-//! de bitiyor.
+//! We issue our own token because Circle's testnet faucet has no API
+//! (reCAPTCHA), so automated tests cannot be set up. With our own token the
+//! trustline hassle goes away too.
 //!
-//! Ondalik 7 hane, tek sabitten okunur. Iki yerde iki farkli sabit olursa
-//! tutarlar 100 kat sapar.
+//! 7 decimals, read from a single constant. Two different constants in two
+//! places would make amounts off by a factor of 100.
 
 use soroban_sdk::{contract, contracterror, contractimpl, contracttype, Address, Env, String};
 
@@ -76,7 +76,7 @@ impl TestToken {
             .set(&DataKey::Meta, &Meta { name, symbol });
     }
 
-    /// Sadece test icin.
+    /// Test only.
     pub fn mint(e: Env, to: Address, amount: i128) -> Result<(), TokenError> {
         check_nonneg(amount)?;
         let admin: Address = e.storage().instance().get(&DataKey::Admin).unwrap();

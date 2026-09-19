@@ -1,51 +1,52 @@
 use soroban_sdk::{contracttype, Address, BytesN, Vec};
 
-/// Kurulum ayarlari. Instance storage'da.
+/// Setup configuration. Lives in instance storage.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Config {
-    /// SEP-41 token. ARAYUZDUR - kodda bu adrese dair hicbir varsayim olmayacak.
-    /// SPP eklentisinin sonradan eklenebilmesi buna bagli (plan par.11, madde 1).
+    /// SEP-41 token. It is an INTERFACE - the code makes no assumption about this address.
+    /// Adding the SPP entry later depends on this (plan section 11, item 1).
     pub token: Address,
-    /// Golge defterin (operatorun) ham ed25519 acik anahtari. Kontrat, bu
-    /// anahtarin kabul imzasi olmayan fisi kabul etmez; defter atlanamaz.
+    /// Raw ed25519 public key of the shadow ledger (the operator). The contract
+    /// rejects any voucher without this key's acceptance signature, so the
+    /// ledger cannot be bypassed.
     pub operator: BytesN<32>,
-    /// Kayitli katilimcinin operatorsuz cekimi (KACIS YOLU) icin bekleme,
-    /// ledger cinsinden. Operatorun ya da alicilarin bekleyen fisleri
-    /// uzlastirmasina zaman tanir.
+    /// Wait for a registered participant's withdrawal without the operator
+    /// (ESCAPE HATCH), in ledgers. Gives the operator or the recipients time
+    /// to settle pending vouchers.
     pub exit_delay: u32,
 }
 
-// NOT: imzalanan yukler STRUCT degil TUPLE. Tanimlari ve gerekcesi
-// voucher.rs dosyasinin basinda.
+// NOTE: signed payloads are TUPLES, not STRUCTS. Their definitions and the
+// reasoning are at the top of voucher.rs.
 
-/// Zincir disindan gelen fis. IKI IMZA tasir.
+/// A voucher coming from off chain. Carries TWO SIGNATURES.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Voucher {
     pub payer: Address,
     pub recipient: Address,
-    /// Bu CIFT icin bugune kadarki toplam. Her yeni fis bir oncekinin
-    /// yerine gecer. Tekrar kullanimi bu sayac engeller.
+    /// Total so far for this PAIR. Each new voucher replaces the previous
+    /// one. This counter prevents reuse.
     pub cumulative: i128,
-    /// payer'in kayitli commitment_key'i ile, "batchv3" yuku uzerinde.
+    /// With the payer's registered commitment_key, over the "batchv3" payload.
     pub sig: BytesN<64>,
-    /// Operatorun kabul imzasi, "acceptv1" yuku uzerinde.
+    /// The operator's acceptance signature, over the "acceptv1" payload.
     pub op_sig: BytesN<64>,
 }
 
-/// settle_batch sonucu.
+/// Result of settle_batch.
 #[contracttype]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SettleOutcome {
-    /// Uygulanan toplam fark.
+    /// Total delta applied.
     pub total: i128,
-    /// Uygulanan fis sayisi.
+    /// Number of vouchers applied.
     pub settled: u32,
-    /// v3.3: eski ya da zaten uzlasmis oldugu icin ATLANAN fis sayisi.
-    /// Parti bunlar yuzunden dusmez.
+    /// v3.3: number of vouchers SKIPPED because they are stale or already
+    /// settled. The batch does not fail because of them.
     pub stale: u32,
-    /// Odemesi karsiliksiz kalan payer'lar. Defter onek parti kurdugu surece
-    /// BOS kalir; dolu gelmesi defterde bir hata demektir.
+    /// Payers whose payments were left unbacked. Stays EMPTY as long as the
+    /// ledger builds prefix batches; a non-empty list means a ledger bug.
     pub skipped: Vec<Address>,
 }

@@ -1,13 +1,13 @@
-// ADIM D2 kabul kriterleri. Ag yok, saniyeler icinde biter.
+// STEP D2 acceptance criteria. No network, finishes in seconds.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { LedgerCore, type VoucherIn, type Ctx, type BatchItem } from "../src/core.ts";
 
-const U = 10_000_000n; // 1 birim, 7 ondalik
+const U = 10_000_000n; // 1 unit, 7 decimals
 
 const ctx = (): Ctx => ({ verifySig: (v) => v.sig === "ok" });
 
-/** Kayitli, bakiyeli katilimcilar. */
+/** Registered participants with balances. */
 function world(balances: Record<string, bigint>): LedgerCore {
   const l = new LedgerCore();
   for (const [x, b] of Object.entries(balances)) {
@@ -17,7 +17,7 @@ function world(balances: Record<string, bigint>): LedgerCore {
   return l;
 }
 
-/** Ayni ciftin bir sonraki fisi: kumulatif = kabul edilen + tutar. */
+/** The pair's next voucher: cumulative = accepted + amount. */
 function pay(l: LedgerCore, payer: string, recipient: string, amount: bigint, c = ctx()) {
   const v: VoucherIn = {
     payer,
@@ -32,54 +32,54 @@ function pay(l: LedgerCore, payer: string, recipient: string, amount: bigint, c 
 
 const reason = (r: ReturnType<typeof pay>) => (r.ok ? "accepted" : r.reason);
 
-// ================= karsiliksiz cek =================
+// ================= bounced cheque =================
 
-test("karsiliksiz_cek: kasasi bos olan odeyemez", () => {
+test("bounced_cheque: a payer with an empty vault cannot pay", () => {
   const l = world({ E: 0n, D: 5n * U });
   assert.equal(reason(pay(l, "E", "D", 3n * U)), "insufficient_spendable");
-  assert.equal(l.spendable("D"), 5n * U, "D'nin parasi degismedi");
+  assert.equal(l.spendable("D"), 5n * U, "D's money did not change");
 });
 
-test("cift_soz: ayni 10 iki kisiye verilemez", () => {
+test("double_promise: the same 10 cannot go to two recipients", () => {
   const l = world({ A: 10n * U, B: 0n, C: 0n });
   assert.equal(reason(pay(l, "A", "B", 10n * U)), "accepted");
   assert.equal(reason(pay(l, "A", "C", 10n * U)), "insufficient_spendable");
   assert.equal(l.spendable("A"), 0n);
 });
 
-// ================= dolasim =================
+// ================= circulation =================
 
-test("dairesel_artis: para donup gelince tekrar harcanabilir", () => {
+test("circular_return: money that comes back is spendable again", () => {
   const l = world({ A: 10n * U, B: 0n, C: 0n });
   pay(l, "A", "B", 2n * U);
   assert.equal(l.spendable("A"), 8n * U);
   pay(l, "B", "C", 2n * U);
   pay(l, "C", "A", 2n * U);
-  assert.equal(l.spendable("A"), 10n * U, "A'nin harcanabiliri geri geldi");
+  assert.equal(l.spendable("A"), 10n * U, "A's spendable came back");
   assert.equal(l.spendable("B"), 0n);
   assert.equal(l.spendable("C"), 0n);
 });
 
-test("gelen_aninda_sayilir: B hic yatirmadan A'dan aldigini harcar", () => {
+test("incoming_counts_immediately: B spends what it got from A without depositing", () => {
   const l = world({ A: 10n * U, B: 0n, C: 0n });
   pay(l, "A", "B", 2n * U);
   assert.equal(reason(pay(l, "B", "C", 2n * U)), "accepted");
   assert.equal(reason(pay(l, "B", "C", 1n)), "insufficient_spendable");
 });
 
-test("sybil_dongusu: bos iki hesap birbirine kredi uretemez", () => {
+test("sybil_loop: two empty accounts cannot create credit for each other", () => {
   const l = world({ E: 0n, E2: 0n });
   assert.equal(reason(pay(l, "E", "E2", 1000n * U)), "insufficient_spendable");
   assert.equal(reason(pay(l, "E2", "E", 1000n * U)), "insufficient_spendable");
 });
 
-/** Sahne 1: A'nin 20'si, kucuk ve donusumlu odemelerle 270 birim borcu tasiyor. */
-test("sahne_1: A 20 ile A->B 100, B->C 90, C->A 80", () => {
+/** Scene 1: A's 20 carries 270 units of debt through small alternating payments. */
+test("scene_1: A with 20, A->B 100, B->C 90, C->A 80", () => {
   const l = world({ A: 20n * U, B: 0n, C: 0n });
   for (let i = 0; i < 100; i++) {
-    assert.equal(reason(pay(l, "A", "B", U)), "accepted", `tur ${i} A->B`);
-    if (i < 90) assert.equal(reason(pay(l, "B", "C", U)), "accepted", `tur ${i} B->C`);
-    if (i < 80) assert.equal(reason(pay(l, "C", "A", U)), "accepted", `tur ${i} C->A`);
+    assert.equal(reason(pay(l, "A", "B", U)), "accepted", `round ${i} A->B`);
+    if (i < 90) assert.equal(reason(pay(l, "B", "C", U)), "accepted", `round ${i} B->C`);
+    if (i < 80) assert.equal(reason(pay(l, "C", "A", U)), "accepted", `round ${i} C->A`);
     assert.ok(l.spendable("A") >= 0n);
   }
   assert.equal(l.accepted("A", "B"), 100n * U);
@@ -90,28 +90,28 @@ test("sahne_1: A 20 ile A->B 100, B->C 90, C->A 80", () => {
   assert.equal(l.spendable("C"), 10n * U);
 });
 
-test("sahne_1_ters_sira: once 100 odemeye kalkarsa ret, dogru olan bu", () => {
+test("scene_1_reverse_order: paying 100 up front is refused, which is correct", () => {
   const l = world({ A: 20n * U, B: 0n, C: 0n });
   assert.equal(reason(pay(l, "A", "B", 100n * U)), "insufficient_spendable");
 });
 
-// ================= diger retler =================
+// ================= other refusals =================
 
-test("kayitsiz, kendine ve imzasi bozuk fis", () => {
+test("unregistered, self-payment and bad-signature vouchers", () => {
   const l = world({ A: 100n * U });
   assert.equal(reason(pay(l, "Z", "A", U)), "not_joined");
   assert.equal(reason(pay(l, "A", "A", U)), "self_payment");
-  const bad = l.accept({ payer: "A", recipient: "B", cumulative: U, sig: "sahte" }, ctx());
+  const bad = l.accept({ payer: "A", recipient: "B", cumulative: U, sig: "forged" }, ctx());
   assert.equal(bad.ok ? "accepted" : bad.reason, "bad_signature");
 });
 
-test("cikan_odeyen_ret", () => {
+test("exiting_payer_refused", () => {
   const l = world({ A: 100n * U, B: 0n });
   l.markExiting("A");
   assert.equal(reason(pay(l, "A", "B", U)), "exiting");
 });
 
-test("kumulatif_monoton: esit ve dusuk kumulatif ret", () => {
+test("cumulative_monotonic: equal and lower cumulatives refused", () => {
   const l = world({ A: 100n * U, B: 0n });
   pay(l, "A", "B", 5n * U);
   const same = l.accept({ payer: "A", recipient: "B", cumulative: 5n * U, sig: "ok" }, ctx());
@@ -120,9 +120,9 @@ test("kumulatif_monoton: esit ve dusuk kumulatif ret", () => {
   assert.equal(lower.ok ? "" : lower.reason, "stale");
 });
 
-// ================= parti =================
+// ================= batches =================
 
-/** Kontratin settle_batch'inin birebir kopyasi: sabit nokta, elenenleri dondurur. */
+/** Exact copy of the contract's settle_batch: fixed point, returns the dropped payers. */
 function contractSkips(balances: Map<string, bigint>, items: BatchItem[], paid: (p: string, r: string) => bigint) {
   const deltas = items.map((it) => it.cumulative - paid(it.payer, it.recipient));
   const bad = new Set<string>();
@@ -144,7 +144,7 @@ function contractSkips(balances: Map<string, bigint>, items: BatchItem[], paid: 
   }
 }
 
-test("parti_kesme: onek, cift basina en son kumulatif", () => {
+test("batch_cut: prefix, latest cumulative per pair", () => {
   const l = world({ A: 100n * U, B: 0n, C: 0n });
   pay(l, "A", "B", U); // seq 1
   pay(l, "A", "B", U); // seq 2
@@ -152,14 +152,14 @@ test("parti_kesme: onek, cift basina en son kumulatif", () => {
   pay(l, "B", "C", U); // seq 4
   const b = l.cutBatch(2)!;
   assert.equal(b.items.length, 2);
-  assert.equal(b.uptoSeq, 3, "ucuncu cift (B->C) sigmadi, onek seq 3'te bitti");
+  assert.equal(b.uptoSeq, 3, "the third pair (B->C) did not fit, the prefix ends at seq 3");
   assert.deepEqual(
     b.items.map((i) => [i.payer, i.recipient, i.cumulative]),
     [["A", "B", 2n * U], ["A", "C", U]],
   );
 });
 
-test("ucustaki_parti: harcanabilir hic degismiyor, basarisizlikta geri donuyor", () => {
+test("batch_in_flight: spendable never changes, and is restored on failure", () => {
   const l = world({ A: 20n * U, B: 0n, C: 0n });
   pay(l, "A", "B", 5n * U);
   pay(l, "B", "C", 3n * U);
@@ -168,63 +168,63 @@ test("ucustaki_parti: harcanabilir hic degismiyor, basarisizlikta geri donuyor",
 
   const b = l.cutBatch(100)!;
   l.markInflight(b);
-  assert.deepEqual(snap(), before, "ucusta");
-  assert.equal(reason(pay(l, "A", "C", 1n * U)), "accepted", "ucustayken kabul devam");
+  assert.deepEqual(snap(), before, "in flight");
+  assert.equal(reason(pay(l, "A", "C", 1n * U)), "accepted", "acceptance continues while in flight");
   const mid = snap();
 
   l.batchFailed();
-  assert.deepEqual(snap(), mid, "basarisizlikta ayni");
+  assert.deepEqual(snap(), mid, "same after failure");
 
   l.markInflight(l.cutBatch(100)!);
   l.batchSettled();
-  assert.deepEqual(snap(), mid, "uzlasinca ayni");
+  assert.deepEqual(snap(), mid, "same after settlement");
   assert.equal(l.balance("A"), 14n * U);
   assert.equal(l.entries.length, 0);
 });
 
-test("reconcile: disaridan uzlastirilmis fis kayittan duser", () => {
+test("reconcile: a voucher settled from outside drops out of the records", () => {
   const l = world({ A: 20n * U, B: 0n });
   pay(l, "A", "B", 5n * U);
-  // alici kacis yolunda kendi fisini settle_one ile uzlastirdi
+  // the recipient settled its own voucher with settle_one (escape hatch)
   l.reconcile(new Map([["A", 15n * U], ["B", 5n * U]]), new Map([["A|B", 5n * U]]));
   assert.equal(l.entries.length, 0);
   assert.equal(l.spendable("A"), 15n * U);
   assert.equal(l.spendable("B"), 5n * U);
 });
 
-test("tetikleyici_ozeti: cift sayisi fis sayisi degil, tutar ve en buyuk alici", () => {
+test("trigger_summary: pairs not vouchers, amount and top recipient", () => {
   const l = world({ A: 100n * U, B: 50n * U, C: 0n, D: 0n });
-  for (let i = 0; i < 50; i++) pay(l, "A", "C", U); // 50 fis, TEK cift
+  for (let i = 0; i < 50; i++) pay(l, "A", "C", U); // 50 vouchers, ONE pair
   pay(l, "A", "D", 3n * U);
   pay(l, "B", "C", 7n * U);
   const s = l.unsettledSummary();
-  assert.equal(l.entries.length, 52, "52 fis");
-  assert.equal(s.pairs, 3, "ama 3 cift: A-C, A-D, B-C");
+  assert.equal(l.entries.length, 52, "52 vouchers");
+  assert.equal(s.pairs, 3, "but 3 pairs: A-C, A-D, B-C");
   assert.equal(s.total, 60n * U);
   assert.equal(s.topRecipient, "C");
   assert.equal(s.topRecipientAmount, 57n * U);
   l.markInflight(l.cutBatch(100)!);
-  assert.equal(l.unsettledSummary().pairs, 3, "ucustaki parti hala uzlasmamis sayilir");
+  assert.equal(l.unsettledSummary().pairs, 3, "a batch in flight still counts as unsettled");
   l.batchSettled();
   assert.deepEqual(l.unsettledSummary(), { pairs: 0, total: 0n, topRecipient: null, topRecipientAmount: 0n });
 });
 
-test("reconcile_monoton: geride kalan RPC'den gelen eski paid okumasi yok sayilir", () => {
+test("reconcile_monotonic: a stale paid reading from a lagging RPC node is ignored", () => {
   const l = world({ A: 20n * U, B: 0n });
   pay(l, "A", "B", 5n * U);
   l.markInflight(l.cutBatch(100)!);
-  l.batchSettled(); // zincirde paid(A,B) = 5
-  pay(l, "A", "B", 3n * U); // uzlasmamis 3 daha
+  l.batchSettled(); // on chain paid(A,B) = 5
+  pay(l, "A", "B", 3n * U); // 3 more, unsettled
   const before = l.spendable("A");
-  // eski dugum partiden ONCEKI durumu dondurdu: paid 0
+  // a stale node returned the state from BEFORE the batch: paid 0
   l.reconcile(new Map(), new Map([["A|B", 0n]]));
-  assert.equal(l.paid("A", "B"), 5n * U, "zincirde odenen geri dusmedi");
-  assert.equal(l.spendable("A"), before, "harcanabilir sisirilmedi");
+  assert.equal(l.paid("A", "B"), 5n * U, "paid on chain did not go back down");
+  assert.equal(l.spendable("A"), before, "spendable was not inflated");
 });
 
-// ================= cekim ayirma =================
+// ================= withdrawal reservations =================
 
-test("cekim_ayirma: ayrilan harcanamaz, sure dolunca serbest", () => {
+test("withdrawal_reservation: reserved money cannot be spent, freed on expiry", () => {
   const l = world({ A: 10n * U, B: 0n });
   assert.equal(l.reserve("A", 6n * U, 2000), null);
   assert.equal(l.spendable("A"), 4n * U);
@@ -234,14 +234,14 @@ test("cekim_ayirma: ayrilan harcanamaz, sure dolunca serbest", () => {
   assert.equal(l.spendable("A"), 10n * U);
 });
 
-test("cekim_istegi_tekrari: ayni nonce ile ikinci ayirma yok", () => {
+test("withdrawal_request_replay: no second reservation with the same nonce", () => {
   const l = world({ A: 10n * U });
   assert.equal(l.reserve("A", 2n * U, 2000, 0n), null);
-  assert.equal(l.reserve("A", 2n * U, 2000, 0n), "duplicate_request", "tekrar gonderilen istek");
-  assert.equal(l.spendable("A"), 8n * U, "sadece bir kez ayrildi");
+  assert.equal(l.reserve("A", 2n * U, 2000, 0n), "duplicate_request", "resent request");
+  assert.equal(l.spendable("A"), 8n * U, "reserved only once");
 });
 
-test("cekim_gerceklesti: bakiye ve ayirma birlikte duser", () => {
+test("withdrawal_executed: balance and reservation drop together", () => {
   const l = world({ A: 10n * U });
   l.reserve("A", 6n * U, 2000);
   l.withdrawn("A", 6n * U);
@@ -250,45 +250,45 @@ test("cekim_gerceklesti: bakiye ve ayirma birlikte duser", () => {
   assert.equal(l.reservations.length, 0);
 });
 
-test("cekim_partisiz: kendi parasi hemen onaylanir", () => {
-  // Kasada 20, Mehmet'e 5 soz verdi (uzlasmadi). 15 serbest.
+test("withdrawal_without_batch: own money is approved immediately", () => {
+  // 20 in the vault, 5 promised to Mehmet (unsettled). 15 are free.
   const l = world({ A: 20n * U, M: 0n });
   pay(l, "A", "M", 5n * U);
   assert.equal(l.withdrawableNow("A"), 15n * U);
   assert.equal(l.reserve("A", 15n * U, 2000), null);
-  assert.equal(l.canApprove("A"), true, "parti gerekmiyor");
-  assert.equal(l.reserve("A", 1n, 2000), "insufficient_spendable", "15'ten fazlasi yok");
-  // cekim zincirde gerceklesti: kasada 5 kaldi, Mehmet'in fisi hala odenebilir
+  assert.equal(l.canApprove("A"), true, "no batch needed");
+  assert.equal(l.reserve("A", 1n, 2000), "insufficient_spendable", "nothing beyond 15");
+  // withdrawal executed on chain: 5 left in the vault, Mehmet's voucher is still payable
   l.withdrawn("A", 15n * U);
   const b = l.cutBatch(100)!;
   assert.equal(contractSkips(l.balances, b.items, (x, y) => l.paid(x, y)).size, 0);
 });
 
-test("cekim_gelen_para: gelmemis para icin olagan parti beklenir", () => {
-  // A'nin kasasi 0, C ona 10 soz verdi. Harcanabilir 10, ama zincirde 0.
+test("withdrawal_incoming_money: money not yet arrived waits for the regular batch", () => {
+  // A's vault is 0, C promised it 10. Spendable is 10, but 0 on chain.
   const l = world({ A: 0n, C: 10n * U });
   pay(l, "C", "A", 10n * U);
   assert.equal(l.spendable("A"), 10n * U);
   assert.equal(l.withdrawableNow("A"), 0n);
-  assert.equal(l.reserve("A", 10n * U, 2000), null, "ayrilabilir");
-  assert.equal(l.canApprove("A"), false, "henuz imzalanamaz");
-  assert.equal(reason(pay(l, "A", "C", 1n)), "insufficient_spendable", "ayrilan para harcanamaz");
+  assert.equal(l.reserve("A", 10n * U, 2000), null, "can be reserved");
+  assert.equal(l.canApprove("A"), false, "cannot be signed yet");
+  assert.equal(reason(pay(l, "A", "C", 1n)), "insufficient_spendable", "reserved money cannot be spent");
   l.markInflight(l.cutBatch(100)!);
   l.batchSettled();
-  assert.equal(l.canApprove("A"), true, "olagan partiden sonra imzalanabilir");
+  assert.equal(l.canApprove("A"), true, "can be signed after the regular batch");
 });
 
-test("cekim_karisik: 20 kasada, 5 giden, 10 gelen", () => {
+test("withdrawal_mixed: 20 in the vault, 5 outgoing, 10 incoming", () => {
   const l = world({ A: 20n * U, M: 0n, C: 10n * U });
   pay(l, "A", "M", 5n * U);
   pay(l, "C", "A", 10n * U);
   assert.equal(l.spendable("A"), 25n * U);
-  assert.equal(l.withdrawableNow("A"), 15n * U, "Can'in 10'u henuz hesapta degil");
+  assert.equal(l.withdrawableNow("A"), 15n * U, "C's 10 is not in the account yet");
   l.reserve("A", 25n * U, 2000);
   assert.equal(l.canApprove("A"), false);
 });
 
-test("cekim_ozelligi: partisiz ve parti bekleyen cekimler kontrata kimseyi eletmiyor", () => {
+test("withdrawal_property: direct and batch-waiting withdrawals never make the contract drop anyone", () => {
   const agents = ["A", "B", "C", "D", "E"];
   const r = rng(99);
   const start: Record<string, bigint> = {};
@@ -299,10 +299,10 @@ test("cekim_ozelligi: partisiz ve parti bekleyen cekimler kontrata kimseyi eletm
   let afterBatch = 0;
   let batches = 0;
 
-  // Sunucunun kurali: onay ancak canApprove dogruyken imzalanir. Imzalanan
-  // cekim zincirde gerceklesir; kontrat amount <= bakiye ister.
+  // The server's rule: an approval is signed only while canApprove is true.
+  // A signed withdrawal executes on chain; the contract requires amount <= balance.
   const execute = (who: string, amt: bigint) => {
-    assert.ok(l.balance(who) >= amt, `${who}: kontrat ExceedsBalance verirdi`);
+    assert.ok(l.balance(who) >= amt, `${who}: the contract would return ExceedsBalance`);
     l.withdrawn(who, amt);
   };
 
@@ -312,10 +312,10 @@ test("cekim_ozelligi: partisiz ve parti bekleyen cekimler kontrata kimseyi eletm
     if (q === p) q = agents[(agents.indexOf(p) + 1) % 5];
     const roll = r();
     if (roll < 0.05) {
-      // para yatirma (Deposited olayi): cekimler sistemi bosaltmasin
+      // deposit (Deposited event): so withdrawals don't drain the system
       l.deposited(p, BigInt(5 + Math.floor(r() * 20)) * U);
     } else if (roll < 0.25) {
-      // bazen tam sinir (withdrawableNow), bazen harcanabilirin tamami, bazen rastgele
+      // sometimes the exact limit (withdrawableNow), sometimes all of spendable, sometimes random
       const k = r();
       const amt = k < 0.4 ? l.withdrawableNow(p) : k < 0.7 ? l.spendable(p) : BigInt(1 + Math.floor(r() * 5)) * U;
       if (amt <= 0n || l.reserve(p, amt, 1e9) !== null) continue;
@@ -329,11 +329,11 @@ test("cekim_ozelligi: partisiz ve parti bekleyen cekimler kontrata kimseyi eletm
       const b = l.cutBatch(1 + Math.floor(r() * 6));
       if (!b) continue;
       const skipped = contractSkips(l.balances, b.items, (x, y) => l.paid(x, y));
-      assert.equal(skipped.size, 0, `islem ${i}: kontrat ${[...skipped]} eleyecekti`);
+      assert.equal(skipped.size, 0, `op ${i}: the contract would drop ${[...skipped]}`);
       l.markInflight(b);
       l.batchSettled();
       batches++;
-      // olagan partiden sonra bekleyen onaylar
+      // approvals waiting for the regular batch
       for (let j = waiting.length - 1; j >= 0; j--) {
         const w = waiting[j];
         if (l.canApprove(w.who)) {
@@ -347,17 +347,17 @@ test("cekim_ozelligi: partisiz ve parti bekleyen cekimler kontrata kimseyi eletm
     }
     for (const x of agents) {
       assert.ok(l.spendable(x) >= 0n);
-      assert.ok(l.balance(x) >= 0n, `${x} zincir bakiyesi eksi`);
+      assert.ok(l.balance(x) >= 0n, `${x} on-chain balance negative`);
     }
   }
-  assert.ok(direct > 20, `partisiz cekim sayisi (${direct})`);
-  assert.ok(afterBatch > 10, `parti sonrasi cekim sayisi (${afterBatch})`);
-  assert.ok(batches > 30, `parti sayisi (${batches})`);
+  assert.ok(direct > 20, `direct withdrawals (${direct})`);
+  assert.ok(afterBatch > 10, `withdrawals after a batch (${afterBatch})`);
+  assert.ok(batches > 30, `batches (${batches})`);
 });
 
-// ================= ONEK OZELLIGI (ASLA GEVSETME) =================
+// ================= PREFIX PROPERTY (NEVER RELAX) =================
 
-/** Tekrarlanabilir rastgelelik. */
+/** Reproducible randomness. */
 function rng(seed: number) {
   let s = seed >>> 0;
   return () => {
@@ -366,7 +366,7 @@ function rng(seed: number) {
   };
 }
 
-test("onek_ozelligi: 5 ajan, 2000 islem, her onek odenebilir", () => {
+test("prefix_property: 5 agents, 2000 ops, every prefix is payable", () => {
   const agents = ["A", "B", "C", "D", "E"];
   const r = rng(42);
   const start: Record<string, bigint> = {};
@@ -385,11 +385,11 @@ test("onek_ozelligi: 5 ajan, 2000 islem, her onek odenebilir", () => {
       accepted++;
       history.push({ payer: p, recipient: q, cumulative: res.entry.cumulative });
     }
-    for (const x of agents) assert.ok(l.spendable(x) >= 0n, `islem ${i}: ${x} eksiye dustu`);
+    for (const x of agents) assert.ok(l.spendable(x) >= 0n, `op ${i}: ${x} went negative`);
   }
-  assert.ok(accepted > 300, `yeterince kabul olmali (${accepted})`);
+  assert.ok(accepted > 300, `enough acceptances expected (${accepted})`);
 
-  // her onek icin: cift basina onekteki son kumulatif, herkes icin bal0 + net >= 0
+  // for every prefix: latest cumulative per pair within it, bal0 + net >= 0 for everyone
   const latest = new Map<string, bigint>();
   for (let s = 0; s < history.length; s++) {
     const h = history[s];
@@ -401,12 +401,12 @@ test("onek_ozelligi: 5 ajan, 2000 islem, her onek odenebilir", () => {
       net.set(q, (net.get(q) ?? 0n) + cum);
     }
     for (const x of agents) {
-      assert.ok((bal0.get(x) ?? 0n) + (net.get(x) ?? 0n) >= 0n, `onek ${s}: ${x} odenemez`);
+      assert.ok((bal0.get(x) ?? 0n) + (net.get(x) ?? 0n) >= 0n, `prefix ${s}: ${x} cannot pay`);
     }
   }
 });
 
-test("onek_ozelligi_partilerle: araya partiler girince kontrat kimseyi elemiyor", () => {
+test("prefix_property_with_batches: with batches in between the contract drops nobody", () => {
   const agents = ["A", "B", "C", "D", "E"];
   const r = rng(7);
   const start: Record<string, bigint> = {};
@@ -424,7 +424,7 @@ test("onek_ozelligi_partilerle: araya partiler girince kontrat kimseyi elemiyor"
       const b = l.cutBatch(1 + Math.floor(r() * 6));
       if (!b) continue;
       const skipped = contractSkips(l.balances, b.items, (x, y) => l.paid(x, y));
-      assert.equal(skipped.size, 0, `parti ${batches}: kontrat ${[...skipped]} eleyecekti`);
+      assert.equal(skipped.size, 0, `batch ${batches}: the contract would drop ${[...skipped]}`);
       l.markInflight(b);
       if (r() < 0.2) l.batchFailed();
       else l.batchSettled();
@@ -432,8 +432,8 @@ test("onek_ozelligi_partilerle: araya partiler girince kontrat kimseyi elemiyor"
     }
     for (const x of agents) {
       assert.ok(l.spendable(x) >= 0n);
-      assert.ok(l.balance(x) >= 0n, `${x} zincir bakiyesi eksi`);
+      assert.ok(l.balance(x) >= 0n, `${x} on-chain balance negative`);
     }
   }
-  assert.ok(batches > 50, `yeterince parti (${batches})`);
+  assert.ok(batches > 50, `enough batches (${batches})`);
 });

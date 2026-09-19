@@ -1,12 +1,12 @@
-// SPP CLI icin `stellar` araya girici. SPP CLI imza icin harici `stellar`
-// ikilisini cagiriyor (STELLAR_BIN ile degistirilebilir). Bu betik tek bir
-// takma adi, `gd-relay`, uzak relayer'a yonlendirir; gerisini gercek
-// `stellar`'a birakir. Boylece resmi SPP CLI degismeden:
+// `stellar` stand-in for the SPP CLI. The SPP CLI calls an external `stellar`
+// binary to sign (overridable with STELLAR_BIN). This script routes a single
+// alias, `gd-relay`, to the remote relayer and hands everything else to the
+// real `stellar`. So with the official SPP CLI unchanged:
 //
-//   STELLAR_BIN=<bu klasor>/stellar.cmd spp --account W --sign-as gd-relay withdraw <havuz> 10 --to F
+//   STELLAR_BIN=<this folder>/stellar.cmd spp --account W --sign-as gd-relay withdraw <pool> 10 --to F
 //
-// cekimin kaynagi ve ucret odeyeni relayer olur; W'nin anahtari makineden cikmaz,
-// relayer'in anahtari da ajana gelmez.
+// the relayer is the withdrawal's source and fee payer; W's key never leaves
+// the machine, and the relayer's key never reaches the agent.
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 
@@ -25,7 +25,7 @@ async function main() {
     process.stdout.write(info.address + "\n");
     return 0;
   }
-  // stellar tx sign --sign-with-key gd-relay ... (zarf stdin'den)
+  // stellar tx sign --sign-with-key gd-relay ... (envelope on stdin)
   if (args[0] === "tx" && args[1] === "sign" && flag("--sign-with-key") === ALIAS) {
     const xdr = readFileSync(0, "utf8").trim();
     const r = await fetch(`${RELAY}/relay/spp-sign`, {
@@ -34,7 +34,7 @@ async function main() {
       body: JSON.stringify({ xdr }),
     }).then((r) => r.json());
     if (!r.xdr) {
-      process.stderr.write(`relayer imzalamadi: ${r.error}\n`);
+      process.stderr.write(`relayer did not sign: ${r.error}\n`);
       return 1;
     }
     process.stdout.write(r.xdr + "\n");

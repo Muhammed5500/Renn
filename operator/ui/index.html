@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Gölge Defter</title>
+<title>Shadow Ledger</title>
 <style>
   :root {
     --bg: #0d1117; --panel: #151b23; --line: #262f3a; --text: #e6edf3; --dim: #8b98a5;
@@ -81,39 +81,39 @@
 </head>
 <body>
 <header>
-  <h1>Gölge Defter</h1>
-  <span class="meta"><span class="dot" id="dot"></span><span id="conn">bağlanıyor</span></span>
+  <h1>Shadow Ledger</h1>
+  <span class="meta"><span class="dot" id="dot"></span><span id="conn">connecting</span></span>
   <span class="meta mono" id="ledger">ledger —</span>
-  <span class="meta">kasa <a class="mono" id="hub" target="_blank" rel="noopener">—</a></span>
-  <button class="theme" id="theme">tema</button>
+  <span class="meta">vault <a class="mono" id="hub" target="_blank" rel="noopener">—</a></span>
+  <button class="theme" id="theme">theme</button>
 </header>
 
 <div class="hero">
-  <div class="tile"><div class="k">Ödeme (son partiden beri)</div><div class="v" id="h-pay">0</div><div class="s" id="h-pay-s">toplam 0 ödeme</div></div>
-  <div class="tile zero"><div class="k">Zincir işlemi (son partiden beri)</div><div class="v" id="h-tx">0</div><div class="s" id="h-tx-s">toplam 0 işlem</div></div>
-  <div class="tile"><div class="k">Kasanın token bakiyesi</div><div class="v mono" id="h-hub">—</div><div class="s" id="h-hub-s">netleşme sırasında izleniyor</div></div>
+  <div class="tile"><div class="k">Payments (since last batch)</div><div class="v" id="h-pay">0</div><div class="s" id="h-pay-s">0 payments total</div></div>
+  <div class="tile zero"><div class="k">On-chain transactions (since last batch)</div><div class="v" id="h-tx">0</div><div class="s" id="h-tx-s">0 transactions total</div></div>
+  <div class="tile"><div class="k">Vault token balance</div><div class="v mono" id="h-hub">—</div><div class="s" id="h-hub-s">watched during netting</div></div>
 </div>
 
 <main>
   <section>
-    <h2>Ajanlar</h2>
-    <div class="legend"><i style="background:var(--bar-locked)"></i>kasada (zincir)<i style="background:var(--accent)"></i>harcanabilir (defter)</div>
-    <div class="scroll" id="agents"><div class="empty">katılımcı bekleniyor</div></div>
+    <h2>Agents</h2>
+    <div class="legend"><i style="background:var(--bar-locked)"></i>in vault (chain)<i style="background:var(--accent)"></i>spendable (ledger)</div>
+    <div class="scroll" id="agents"><div class="empty">waiting for participants</div></div>
   </section>
   <section>
-    <h2>Fiş akışı</h2>
-    <div class="scroll mono" id="stream"><div class="empty">fiş bekleniyor. Fişler zincire gitmiyor.</div></div>
+    <h2>Voucher stream</h2>
+    <div class="scroll mono" id="stream"><div class="empty">waiting for vouchers. Vouchers do not go on chain.</div></div>
   </section>
   <section class="net">
-    <h2>Netleştirme ve zincir</h2>
-    <div id="net"><div class="empty">parti bekleniyor</div></div>
-    <div class="sub">Olaylar</div>
+    <h2>Netting and chain</h2>
+    <div id="net"><div class="empty">waiting for a batch</div></div>
+    <div class="sub">Events</div>
     <div class="events scroll" id="events" style="max-height:220px"></div>
   </section>
 </main>
 
 <script>
-// Her sayi calisan defterden geliyor: GET /state ve GET /feed (SSE). Maket yok.
+// Every number comes from the running ledger: GET /state and GET /feed (SSE). No mock data.
 const U = 1e7;
 const $ = (id) => document.getElementById(id);
 const fmt = (x) => (Number(BigInt(x)) / U).toFixed(2);
@@ -122,7 +122,7 @@ let labels = {};
 const name = (a) => labels[a] || short(a);
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-// tema
+// theme
 const root = document.documentElement;
 try { const t = localStorage.getItem("gd-theme"); if (t) root.dataset.theme = t; } catch {}
 $("theme").onclick = () => {
@@ -132,9 +132,9 @@ $("theme").onclick = () => {
   try { localStorage.setItem("gd-theme", root.dataset.theme); } catch {}
 };
 
-// ---- durum ----
-let sinceBatch = 0;          // son partiden beri kabul edilen odeme
-let pendingPairs = new Map(); // "payer|recipient" -> toplam fark (son partiden beri)
+// ---- state ----
+let sinceBatch = 0;          // payments accepted since the last batch
+let pendingPairs = new Map(); // "payer|recipient" -> total increase (since the last batch)
 let lastState = null;
 
 async function poll() {
@@ -144,29 +144,30 @@ async function poll() {
     labels = Object.fromEntries(s.participants.filter((p) => p.label).map((p) => [p.address, p.label]));
     $("ledger").textContent = "ledger " + s.ledger;
     const hub = $("hub"); hub.textContent = short(s.hub); hub.href = "https://stellar.expert/explorer/testnet/contract/" + s.hub;
-    $("h-pay-s").textContent = `toplam ${s.stats.accepted} ödeme · ${s.stats.refused} ret`;
-    $("h-tx-s").textContent = `toplam ${s.stats.batches} işlem`;
+    $("h-pay-s").textContent = `${s.stats.accepted} payments total · ${s.stats.refused} refused`;
+    $("h-tx-s").textContent = `${s.stats.batches} transactions total`;
     if ($("h-hub").dataset.set !== "1") $("h-hub").textContent = fmt(s.stats.hubToken);
     renderAgents(s.participants);
   } catch {}
 }
 
 function renderAgents(ps) {
-  // etiketli katilimcilar once; servisler (etiketi servis-*) ve etiketsizler sona
+  // labeled participants first; services (label service-* or servis-*) and unlabeled ones last
+  const isService = (l) => /^servi(s|ce)/.test(l);
   const shown = ps.filter((p) => p.joined || BigInt(p.locked) > 0n || BigInt(p.pendingIn) > 0n)
-    .sort((a, b) => (b.label && !b.label.startsWith("servis") ? 1 : 0) - (a.label && !a.label.startsWith("servis") ? 1 : 0))
+    .sort((a, b) => (b.label && !isService(b.label) ? 1 : 0) - (a.label && !isService(a.label) ? 1 : 0))
     .slice(0, 24);
   if (!shown.length) return;
   const max = shown.reduce((m, p) => { const a = BigInt(p.locked), b = BigInt(p.spendable); return a > m ? a : b > m ? b : m; }, 1n);
   $("agents").innerHTML = shown.map((p) => {
     const lw = Number((BigInt(p.locked) * 1000n) / max) / 10;
     const sw = Number(((BigInt(p.spendable) > 0n ? BigInt(p.spendable) : 0n) * 1000n) / max) / 10;
-    const flags = [p.exiting ? '<span class="badge warn">çıkışta</span>' : "", BigInt(p.reserved) > 0n ? '<span class="badge warn">çekim ayrıldı</span>' : ""].join(" ");
+    const flags = [p.exiting ? '<span class="badge warn">exiting</span>' : "", BigInt(p.reserved) > 0n ? '<span class="badge warn">withdrawal reserved</span>' : ""].join(" ");
     return `<div class="agent">
       <div class="row"><span class="name">${esc(name(p.address))} ${flags}</span>
         <span class="mono">${fmt(p.spendable)}</span></div>
-      <div class="row nums"><span>kasada ${fmt(p.locked)}</span>
-        <span>giden ${fmt(p.pendingOut)} · gelen ${fmt(p.pendingIn)}</span></div>
+      <div class="row nums"><span>in vault ${fmt(p.locked)}</span>
+        <span>out ${fmt(p.pendingOut)} · in ${fmt(p.pendingIn)}</span></div>
       <div class="bars"><div class="locked" style="width:${lw}%"></div><div class="spend" style="width:${sw}%"></div></div>
     </div>`;
   }).join("");
@@ -191,9 +192,9 @@ function addEvent(html) {
 }
 
 const REASON = {
-  insufficient_spendable: "harcanabilir yetmiyor", exiting: "ödeyen çıkışta",
-  stale: "eski fiş", bad_signature: "imza geçersiz", not_joined: "kayıtlı değil",
-  self_payment: "kendine ödeme", underpaid: "bedelin altında", bad_amount: "geçersiz tutar",
+  insufficient_spendable: "not enough spendable", exiting: "payer is exiting",
+  stale: "stale voucher", bad_signature: "invalid signature", not_joined: "not registered",
+  self_payment: "payment to self", underpaid: "underpaid", bad_amount: "invalid amount",
 };
 
 function renderNet(title, items) {
@@ -212,17 +213,17 @@ function renderNet(title, items) {
   const pos = [...net].filter(([, v]) => v !== 0n).sort((a, b) => (b[1] > a[1] ? 1 : -1)).slice(0, 10)
     .map(([a, v]) => `<div class="pos"><span>${esc(name(a))}</span><span class="mono ${v > 0n ? "plus" : "minus"}">${v > 0n ? "+" : ""}${fmt(v)}</span></div>`).join("");
   return `<div class="net-head">${title}</div>
-    <div><span class="net-big mono">${fmt(gross)}</span> <span class="empty">brüt borç</span> →
-         <span class="net-big mono">${fmt(moved)}</span> <span class="empty">net hareket</span></div>
-    <div class="sub">Brüt (${items.length} çift)</div>${pairs || '<div class="empty">—</div>'}
-    <div class="sub">Net pozisyon</div>${pos || '<div class="empty">herkes sıfırda: borçlar birbirini götürdü</div>'}`;
+    <div><span class="net-big mono">${fmt(gross)}</span> <span class="empty">gross debt</span> →
+         <span class="net-big mono">${fmt(moved)}</span> <span class="empty">net movement</span></div>
+    <div class="sub">Gross (${items.length} pairs)</div>${pairs || '<div class="empty">—</div>'}
+    <div class="sub">Net position</div>${pos || '<div class="empty">everyone at zero: the debts cancelled out</div>'}`;
 }
 
-// ---- canli akis ----
+// ---- live feed ----
 function connect() {
   const es = new EventSource("/feed");
-  es.onopen = () => { $("dot").classList.add("on"); $("conn").textContent = "canlı · testnet"; };
-  es.onerror = () => { $("dot").classList.remove("on"); $("conn").textContent = "bağlantı koptu, yeniden deneniyor"; };
+  es.onopen = () => { $("dot").classList.add("on"); $("conn").textContent = "live · testnet"; };
+  es.onerror = () => { $("dot").classList.remove("on"); $("conn").textContent = "connection lost, retrying"; };
 
   es.addEventListener("accepted", (m) => {
     const e = JSON.parse(m.data);
@@ -232,7 +233,7 @@ function connect() {
     const key = e.payer + "|" + e.recipient;
     pendingPairs.set(key, (pendingPairs.get(key) ?? 0n) + BigInt(e.delta));
     addStream(`<span>${esc(name(e.payer))} → ${esc(name(e.recipient))} <span class="amt">${fmt(e.delta)}</span></span><span>✓ #${e.seq}</span>`);
-    if (sinceBatch % 5 === 1) $("net").innerHTML = renderNet("Birikiyor. Henüz zincire bir şey gitmedi.", [...pendingPairs]);
+    if (sinceBatch % 5 === 1) $("net").innerHTML = renderNet("Accumulating. Nothing has gone on chain yet.", [...pendingPairs]);
   });
 
   es.addEventListener("refused", (e) => {
@@ -242,9 +243,9 @@ function connect() {
 
   es.addEventListener("batch_sent", (m) => {
     const e = JSON.parse(m.data);
-    $("net").innerHTML = renderNet(`Parti zincire gidiyor: ${e.pairs} çift, tek işlem`, [...pendingPairs]);
+    $("net").innerHTML = renderNet(`Batch going on chain: ${e.pairs} pairs, one transaction`, [...pendingPairs]);
     $("h-hub").dataset.set = "1";
-    $("h-hub-s").innerHTML = 'netleşme sürüyor…';
+    $("h-hub-s").innerHTML = 'netting in progress…';
   });
 
   es.addEventListener("batch_settled", (m) => {
@@ -253,23 +254,23 @@ function connect() {
     $("h-tx").textContent = "1";
     $("h-hub").textContent = fmt(e.hubTokenAfter);
     $("h-hub-s").innerHTML = `${fmt(e.hubTokenBefore)} → ${fmt(e.hubTokenAfter)} ` +
-      (same ? '<span class="badge ok">DEĞİŞMEDİ</span>' : '<span class="badge warn">değişti</span>');
-    const skipped = e.skipped.length ? `<span class="badge bad">${e.skipped.length} ödeyen elendi</span>` : '<span class="badge ok">kimse elenmedi</span>';
+      (same ? '<span class="badge ok">UNCHANGED</span>' : '<span class="badge warn">changed</span>');
+    const skipped = e.skipped.length ? `<span class="badge bad">${e.skipped.length} payers dropped</span>` : '<span class="badge ok">nobody dropped</span>';
     $("net").innerHTML = renderNet(
-      `Uzlaştı: ${sinceBatch} ödeme, 1 işlem. ${skipped} <a target="_blank" rel="noopener" href="https://stellar.expert/explorer/testnet/tx/${e.hash}">işlemi gör</a>`,
+      `Settled: ${sinceBatch} payments, 1 transaction. ${skipped} <a target="_blank" rel="noopener" href="https://stellar.expert/explorer/testnet/tx/${e.hash}">view transaction</a>`,
       [...pendingPairs]);
-    const WHY = { time: "süre", capacity: "kapasite", total: "toplam tutar", recipient: "alıcı tutarı", exit: "çıkış ilanı", withdraw: "çekim", manual: "elle" };
-    addEvent(`parti · sebep: ${esc(WHY[e.reason] || e.reason || "?")} · ${e.settled} fiş · <a target="_blank" rel="noopener" href="https://stellar.expert/explorer/testnet/tx/${e.hash}">${short(e.hash)}</a>`);
+    const WHY = { time: "time", capacity: "capacity", total: "total value", recipient: "recipient value", exit: "exit announced", withdraw: "withdrawal", manual: "manual" };
+    addEvent(`batch · reason: ${esc(WHY[e.reason] || e.reason || "?")} · ${e.settled} vouchers · <a target="_blank" rel="noopener" href="https://stellar.expert/explorer/testnet/tx/${e.hash}">${short(e.hash)}</a>`);
     pendingPairs = new Map();
     sinceBatch = 0;
     $("h-pay").textContent = "0";
     poll();
   });
 
-  es.addEventListener("batch_failed", (m) => addEvent(`<span class="badge bad">parti başarısız</span> ${esc(JSON.parse(m.data).error).slice(0, 120)}`));
-  es.addEventListener("exit_seen", (m) => addEvent(`<span class="badge warn">çıkış</span> ${esc(name(JSON.parse(m.data).who))}: kabul kesildi, hemen uzlaşılıyor`));
-  es.addEventListener("withdraw_reserved", (m) => { const e = JSON.parse(m.data); addEvent(`çekim isteği · ${esc(name(e.who))} ${fmt(e.amount)} ayrıldı`); });
-  es.addEventListener("withdraw_approved", (m) => { const e = JSON.parse(m.data); addEvent(`<span class="badge ok">çekim onayı</span> ${esc(name(e.who))} ${fmt(e.amount)} · ${e.path === "direct" ? "anında, parti yok" : "gelen para partiyle düştü"}`); });
+  es.addEventListener("batch_failed", (m) => addEvent(`<span class="badge bad">batch failed</span> ${esc(JSON.parse(m.data).error).slice(0, 120)}`));
+  es.addEventListener("exit_seen", (m) => addEvent(`<span class="badge warn">exit</span> ${esc(name(JSON.parse(m.data).who))}: acceptance stopped, settling now`));
+  es.addEventListener("withdraw_reserved", (m) => { const e = JSON.parse(m.data); addEvent(`withdrawal request · ${esc(name(e.who))} ${fmt(e.amount)} reserved`); });
+  es.addEventListener("withdraw_approved", (m) => { const e = JSON.parse(m.data); addEvent(`<span class="badge ok">withdrawal approved</span> ${esc(name(e.who))} ${fmt(e.amount)} · ${e.path === "direct" ? "immediate, no batch" : "incoming money settled in a batch"}`); });
 }
 
 poll();

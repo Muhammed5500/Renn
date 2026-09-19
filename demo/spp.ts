@@ -40,7 +40,7 @@ export async function privateEntry(amount = 10n, n = 3, say = (s: string) => con
   const ws = Array.from({ length: n }, (_, i) => `gd_w${i + 1}_${tag}`);
   const wAddr: Record<string, string> = {};
   try {
-    say(`  ${n} bilinen cuzdan hazirlaniyor (friendbot, ${u} RTUSD, SPP anahtarlari)`);
+    say(`  preparing ${n} known wallets (friendbot, ${u} RTUSD, SPP keys)`);
     for (const w of ws) {
       execSync(`stellar keys generate ${w} --network testnet --fund`, { stdio: "ignore" });
       wAddr[w] = execSync(`stellar keys address ${w}`).toString().trim();
@@ -54,7 +54,7 @@ export async function privateEntry(amount = 10n, n = 3, say = (s: string) => con
     const deposits: string[] = [];
     for (const [i, w] of crowd.entries()) {
       deposits.push(await cli.deposit(w, amount * U));
-      say(`  W${i + 1} ${wAddr[w].slice(0, 8)}… havuza ${u} yatirdi   https://stellar.expert/explorer/testnet/tx/${deposits.at(-1)}`);
+      say(`  W${i + 1} ${wAddr[w].slice(0, 8)}… deposited ${u} into the pool   https://stellar.expert/explorer/testnet/tx/${deposits.at(-1)}`);
     }
 
     const chosen = oneCall ? ws[n - 1] : ws[randomInt(n)];
@@ -68,10 +68,10 @@ export async function privateEntry(amount = 10n, n = 3, say = (s: string) => con
     });
     if (r.txs.sppDeposit) {
       deposits.push(r.txs.sppDeposit);
-      say(`  W${n} ${wAddr[chosen].slice(0, 8)}… havuza ${u} yatirdi   https://stellar.expert/explorer/testnet/tx/${r.txs.sppDeposit}`);
+      say(`  W${n} ${wAddr[chosen].slice(0, 8)}… deposited ${u} into the pool   https://stellar.expert/explorer/testnet/tx/${r.txs.sppDeposit}`);
     }
-    say(`  havuzdan taze F'ye ${u}: ${r.address.slice(0, 8)}…   https://stellar.expert/explorer/testnet/tx/${r.txs.sppWithdraw}`);
-    say(`  F 0 XLM ile hesap acti, kasaya katildi, ${u} yatirdi (ucretler relayer'dan)`);
+    say(`  ${u} from the pool to a fresh F ${r.address.slice(0, 8)}…   https://stellar.expert/explorer/testnet/tx/${r.txs.sppWithdraw}`);
+    say(`  F opened an account with 0 XLM, joined the vault, deposited ${u} (fees paid by the relayer)`);
 
     return {
       f: asTestAgent("F", r.keypair, r.agent),
@@ -79,7 +79,7 @@ export async function privateEntry(amount = 10n, n = 3, say = (s: string) => con
       ws: ws.map((w) => wAddr[w]),
       chosen: wAddr[chosen],
       deposits,
-      txs: { cekim: r.txs.sppWithdraw, "hesap ac": r.txs.openAccount, join: r.txs.join, deposit: r.txs.deposit },
+      txs: { withdrawal: r.txs.sppWithdraw, "open account": r.txs.openAccount, join: r.txs.join, deposit: r.txs.deposit },
     };
   } finally {
     for (const w of ws) execSync(`stellar keys rm --force ${w}`, { stdio: "ignore" });

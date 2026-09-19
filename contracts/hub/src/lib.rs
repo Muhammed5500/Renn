@@ -1,18 +1,20 @@
 #![no_std]
-//! Golge Defter - Coktan Coga, Anlik Ajan Odemeleri
+//! Shadow Ledger - many-to-many, instant agent payments
 //!
-//! Ajanlar birbirine aninda oduyor. Kimse kasasindaki paradan fazlasini
-//! harcayamiyor. Butun ag tek islemde kapaniyor.
+//! Agents pay each other instantly. Nobody can spend more than they hold in
+//! the vault. The whole network settles in one transaction.
 //!
-//! Bu kontrat KASA: parayi tutar, iki imzali fisleri netlestirir, ic
-//! bakiyeleri gunceller. Harcanabilir bakiyeyi zincir disindaki golge defter
-//! (operator) takip eder. Kontrat, operatorun kabul imzasi olmayan
-//! fisi kabul etmez; defter atlanamaz.
+//! This contract is the VAULT: it holds the money, nets vouchers that carry
+//! two signatures, and updates internal balances. The spendable balance is
+//! tracked off chain by the shadow ledger (the operator). The contract rejects
+//! any voucher without the operator's acceptance signature, so the ledger
+//! cannot be bypassed.
 //!
-//! Operator para CALAMAZ (fis odeyenin imzasini istiyor, cekim sahibinin
-//! imzasini) ve parayi KILITLEYEMEZ (exit_start kacis yolu operatorsuz).
+//! The operator CANNOT steal (a voucher needs the payer's signature, a
+//! withdrawal the owner's) and CANNOT lock funds (the exit_start escape hatch
+//! works without the operator).
 //!
-//! Plan: `Son 2 Plan/PLAN-golge-defter.md` v3.3.
+//! Plan: `PLAN-golge-defter.md` v3.3 (outside the repo).
 
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, Vec};
 
@@ -34,7 +36,7 @@ pub struct Hub;
 
 #[contractimpl]
 impl Hub {
-    // ================= kurulum ve kayit =================
+    // ================= setup and registration =================
 
     pub fn __constructor(
         e: Env,
@@ -56,14 +58,14 @@ impl Hub {
         Ok(())
     }
 
-    /// Katilimci kendi fis imzalama anahtarini kaydeder.
+    /// A participant registers its own voucher signing key.
     ///
-    /// `commitment_key` bir Stellar adresi degil, ham 32 baytlik ed25519 acik
-    /// anahtari. Sicak anahtar: calinirsa saldirgan harcanabilir bakiye kadar
-    /// harcayabilir. Ajan ve anahtar guvenligi cuzdanin isi, bu kontratin
-    /// degil. Anahtar dondurme YOK (NOTLAR.md).
+    /// `commitment_key` is not a Stellar address, it is a raw 32-byte ed25519
+    /// public key. It is a hot key: if stolen, the attacker can spend up to the
+    /// spendable balance. Agent and key security is the wallet's job, not this
+    /// contract's. There is NO key rotation (NOTES.md).
     ///
-    /// SADECE ODEYEN OLACAKLAR icin gerekli. Saf alici join etmez.
+    /// Required ONLY for those who will pay. A pure recipient does not join.
     pub fn join(e: Env, who: Address, commitment_key: BytesN<32>) -> Result<(), Error> {
         who.require_auth();
         if st::get_signer(&e, &who).is_some() {
@@ -78,10 +80,10 @@ impl Hub {
         Ok(())
     }
 
-    /// Token'i kontrata ceker, ic bakiyeyi artirir.
+    /// Pulls the token into the contract and raises the internal balance.
     ///
-    /// JOIN SARTI YOK. Kasa paranin nereden geldigini sormaz; SPP eklentisinin
-    /// sonradan eklenebilmesi buna bagli (plan par.11, madde 2).
+    /// NO JOIN REQUIRED. The vault does not ask where the money comes from;
+    /// adding the SPP entry later depends on this (plan section 11, item 2).
     pub fn deposit(e: Env, who: Address, amount: i128) -> Result<(), Error> {
         who.require_auth();
         if amount <= 0 {
@@ -104,17 +106,18 @@ impl Hub {
         Ok(())
     }
 
-    // ================= uzlasma (izinsiz) =================
+    // ================= settlement (permissionless) =================
 
-    /// Tek fis. Izin gerektirmez, caller sadece ucreti odeyen taraf.
-    /// Kacis yolunda alici kendi kabul edilmis fisini boyle uzlastirir.
+    /// One voucher. Permissionless; the caller is only the fee payer.
+    /// In escape mode a recipient settles its own accepted voucher this way.
     pub fn settle_one(e: Env, caller: Address, v: Voucher) -> Result<i128, Error> {
         let _ = caller;
         settle::settle_one(&e, &v)
     }
 
-    /// Coktan coga netlestirme. Izin gerektirmez.
-    /// Eski fis partiyi dusurmez, atlanir. Imza hatasi hala parti geneli.
+    /// Many-to-many netting. Permissionless.
+    /// A stale voucher does not fail the batch, it is skipped. A bad signature
+    /// still fails the whole batch.
     pub fn settle_batch(
         e: Env,
         caller: Address,
@@ -124,16 +127,18 @@ impl Hub {
         settle::settle_batch(&e, &vs)
     }
 
-    // ================= cikis ve cekim =================
+    // ================= exit and withdrawal =================
 
-    /// Cikis ilani. Defter bunu gorunce odeyeni kabul etmeyi keser ve bekleyen
-    /// fislerini uzlastirir. Uzlasma bu sure boyunca CALISMAYA DEVAM EDER.
+    /// Exit announcement. When the ledger sees it, it stops accepting the
+    /// payer's vouchers and settles the pending ones. Settlement KEEPS WORKING
+    /// during this period.
     pub fn exit_start(e: Env, who: Address) -> Result<(), Error> {
         who.require_auth();
         exit::exit_start(&e, &who)
     }
 
-    /// Operator onayli ANINDA cekim. Kismi olabilir. Sadece kayitli katilimci.
+    /// INSTANT withdrawal approved by the operator. Can be partial. Registered
+    /// participants only.
     pub fn withdraw_approved(
         e: Env,
         who: Address,
@@ -145,24 +150,26 @@ impl Hub {
         exit::withdraw_approved(&e, &who, amount, valid_until, &op_sig)
     }
 
-    /// Operatorsuz cekim, butun bakiye.
-    /// Kayitsiz alici: aninda. Kayitli katilimci: exit_start + exit_delay.
+    /// Withdrawal without the operator, the whole balance.
+    /// Unregistered recipient: immediately. Registered participant:
+    /// exit_start + exit_delay.
     pub fn withdraw(e: Env, who: Address) -> Result<i128, Error> {
         who.require_auth();
         exit::withdraw(&e, &who)
     }
 
-    /// PASIF ALICI. Izinsiz, parayi sahibine iter. Sadece kayitsiz alici.
+    /// PASSIVE RECIPIENT. Permissionless, pushes the money to its owner.
+    /// Unregistered recipients only.
     pub fn payout(e: Env, who: Address) -> Result<i128, Error> {
         exit::payout(&e, &who)
     }
 
-    /// Izinsiz. Bir katilimcinin kalici kayitlarinin omrunu uzatir.
+    /// Permissionless. Extends the lifetime of a participant's persistent entries.
     pub fn extend_ttl(e: Env, who: Address) {
         st::touch(&e, &who);
     }
 
-    // ================= okuma =================
+    // ================= reads =================
 
     pub fn config(e: Env) -> Result<Config, Error> {
         st::get_config(&e)
@@ -180,20 +187,21 @@ impl Hub {
         st::get_signer(&e, &who)
     }
 
-    /// Cikis ilan edildi mi. Defter bunu gorunce odeyeni kabul etmeyi keser.
+    /// Whether an exit was announced. When the ledger sees it, it stops
+    /// accepting the payer's vouchers.
     pub fn exit_at_of(e: Env, who: Address) -> Option<u32> {
         st::get_exit_at(&e, &who)
     }
 
-    /// Bir sonraki cekim onayinin tasimasi gereken nonce.
+    /// The nonce the next withdrawal approval must carry.
     pub fn withdraw_nonce_of(e: Env, who: Address) -> u64 {
         st::get_withdraw_nonce(&e, &who)
     }
 
-    // ================= imza yukleri (hata ayiklama + SDK) =================
+    // ================= signed payloads (debugging + SDK) =================
     //
-    // Zincir disi taraf (defter, SDK) ayni baytlari uretmek ZORUNDA.
-    // Imza tutmuyorsa once buradaki ham baytlarla karsilastir.
+    // The off-chain side (ledger, SDK) MUST produce the same bytes.
+    // If a signature does not verify, compare against the raw bytes here first.
 
     pub fn voucher_preimage(e: Env, payer: Address, recipient: Address, cumulative: i128) -> Bytes {
         voucher::voucher_preimage(&e, &payer, &recipient, cumulative)
@@ -231,8 +239,8 @@ impl Hub {
         voucher::withdraw_hash(&e, &who, amount, nonce, valid_until)
     }
 
-    /// Fisin iki imzasini dogrular. Gecersizse PANIKLER.
-    /// Alici hizmeti vermeden once simule ederek kontrol edebilir.
+    /// Verifies both signatures of a voucher. PANICS if invalid.
+    /// A recipient can simulate this before delivering the service.
     pub fn verify_voucher(e: Env, v: Voucher) -> Result<(), Error> {
         voucher::verify(&e, &v)
     }

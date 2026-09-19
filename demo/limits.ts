@@ -1,5 +1,5 @@
-// ADIM L - sinir olcumu. settle_batch'i N cift ile SIMULE eder (zincire gondermez),
-// ilk patlayan N'i ve kaynak tuketimini bulur. Sonuc LIMITS.md'ye.
+// Step L: limit measurement. SIMULATES settle_batch with N pairs (nothing is
+// sent), finds the first N that fails and the resource use. Results go to LIMITS.md.
 import { readFileSync } from "node:fs";
 import { Keypair, TransactionBuilder, Contract, rpc, xdr } from "@stellar/stellar-sdk";
 import { newAgent, chain, hubCfg, dep, U } from "./testnet.ts";
@@ -52,15 +52,15 @@ for (const n of (process.argv[2] ?? "1,5,10,20,30,40,50,60,80,100").split(",").m
   if (!r.ok) break;
 }
 
-// ---- surekli isleyis: ayni ciftler ikinci kez (kayitlar zaten var) ----
+// ---- steady state: the same pairs a second time (storage entries already exist) ----
 if (process.env.STEADY) {
   const n = Number(process.env.STEADY);
   const first = vouchers(n);
   const res = await chain.invoke(op, "settle_batch", [A.addr(op.publicKey()), xdr.ScVal.scvVec(first.map(voucherScVal))]);
-  console.log("ilk parti (yeni kayitlar) gonderildi:", res.hash);
+  console.log("first batch (new entries) sent:", res.hash);
   for (const v of first) {
     const p = payers.find((x) => x.address === v.payer)!;
     p.agent.cum.set(v.recipient, v.cumulative);
   }
-  console.log("ayni ciftler, ikinci parti:", JSON.stringify(await sim(n)));
+  console.log("same pairs, second batch:", JSON.stringify(await sim(n)));
 }

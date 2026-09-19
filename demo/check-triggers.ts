@@ -1,19 +1,19 @@
-// Parti tetikleyicileri, testnet'te. Defteri kucuk esiklerle calistir:
+// Batch triggers, on testnet. Run the ledger with small thresholds:
 //
 //   ROUND_MS=600000 MAX_PAIRS=4 MAX_UNSETTLED=80000000 MAX_RECIPIENT_UNSETTLED=50000000 npm start
 //   node demo/check-triggers.ts
 //
-// (sure 10 dk: bu kontrol sirasinda sure tetikleyicisi karismasin)
-//   a) kapasite:     4 farkli ciftte kucuk odemeler -> "capacity"
-//   b) alici tutari: tek aliciya 6 (> 5)            -> "recipient"
-//   c) toplam tutar: iki aliciya 4.5'er (toplam 9 > 8, alici basina < 5) -> "total"
-//   d) esik altinda: parti gitmiyor
+// (time is 10 min so the time trigger stays out of this check)
+//   a) capacity:         small payments on 4 distinct pairs -> "capacity"
+//   b) recipient value:  6 to one recipient (> 5)           -> "recipient"
+//   c) total value:      4.5 each to two recipients (total 9 > 8, < 5 per recipient) -> "total"
+//   d) below threshold:  no batch
 import { Keypair } from "@stellar/stellar-sdk";
 import { newAgent, track, ledgerState, pay, U } from "./testnet.ts";
 
 const must = (c: boolean, m: string) => {
   if (!c) {
-    console.error("HATA:", m);
+    console.error("ERROR:", m);
     process.exit(1);
   }
 };
@@ -24,39 +24,39 @@ async function expectBatch(before: number, reason: string) {
   for (let i = 0; i < 20; i++) {
     const st = await ledgerState();
     if (st.stats.batches > before && st.unsettled === 0) {
-      console.log(`   parti gitti, sebep: ${st.stats.lastBatchReason}  https://stellar.expert/explorer/testnet/tx/${st.stats.lastBatchTx}`);
-      must(st.stats.lastBatchReason === reason, `sebep ${reason} olmali`);
+      console.log(`   batch sent, reason: ${st.stats.lastBatchReason}  https://stellar.expert/explorer/testnet/tx/${st.stats.lastBatchTx}`);
+      must(st.stats.lastBatchReason === reason, `reason should be ${reason}`);
       return;
     }
     await sleep(2000);
   }
-  must(false, `${reason} partisi 40 sn icinde gitmedi`);
+  must(false, `no ${reason} batch within 40 s`);
 }
 
-const a = await newAgent("tetik", 20n * U);
-await track([a.address], { [a.address]: "tetik" });
+const a = await newAgent("trigger", 20n * U);
+await track([a.address], { [a.address]: "trigger" });
 
-console.log("a) kapasite: 4 farkli cift, her biri 0.01");
+console.log("a) capacity: 4 distinct pairs, 0.01 each");
 let b0 = (await ledgerState()).stats.batches;
-for (let i = 0; i < 4; i++) must((await pay(a, fresh(), U / 100n)).status === "accepted", "odeme");
+for (let i = 0; i < 4; i++) must((await pay(a, fresh(), U / 100n)).status === "accepted", "payment");
 await expectBatch(b0, "capacity");
 
-console.log("b) alici tutari: tek aliciya 6");
+console.log("b) recipient value: 6 to one recipient");
 b0 = (await ledgerState()).stats.batches;
-must((await pay(a, fresh(), 6n * U)).status === "accepted", "odeme");
+must((await pay(a, fresh(), 6n * U)).status === "accepted", "payment");
 await expectBatch(b0, "recipient");
 
-console.log("d) esik altinda: tek aliciya 4.5, parti gitmemeli");
+console.log("d) below threshold: 4.5 to one recipient, no batch expected");
 b0 = (await ledgerState()).stats.batches;
-must((await pay(a, fresh(), (45n * U) / 10n)).status === "accepted", "odeme");
+must((await pay(a, fresh(), (45n * U) / 10n)).status === "accepted", "payment");
 await sleep(8000);
 const mid = await ledgerState();
-console.log(`   8 sn sonra parti sayisi ${b0} -> ${mid.stats.batches}, uzlasmamis ${mid.unsettled}`);
-must(mid.stats.batches === b0 && mid.unsettled === 1, "esik altinda parti gitmemeli");
+console.log(`   after 8 s batches ${b0} -> ${mid.stats.batches}, unsettled ${mid.unsettled}`);
+must(mid.stats.batches === b0 && mid.unsettled === 1, "no batch below the thresholds");
 
-console.log("c) toplam tutar: ikinci aliciya 4.5 (toplam 9 > 8)");
-must((await pay(a, fresh(), (45n * U) / 10n)).status === "accepted", "odeme");
+console.log("c) total value: 4.5 to a second recipient (total 9 > 8)");
+must((await pay(a, fresh(), (45n * U) / 10n)).status === "accepted", "payment");
 await expectBatch(b0, "total");
 
-console.log("\nTETIKLEYICI KONTROLU GECTI");
+console.log("\nTRIGGER CHECK PASSED");
 process.exit(0);

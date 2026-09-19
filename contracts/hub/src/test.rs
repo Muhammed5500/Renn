@@ -1,5 +1,5 @@
 #![cfg(test)]
-//! Ortak kurulum + kayit, yatirma, TTL testleri.
+//! Shared setup + registration, deposit and TTL tests.
 
 use super::*;
 use ed25519_dalek::{Signer as _, SigningKey};
@@ -8,12 +8,12 @@ use soroban_sdk::{
     Env, String,
 };
 
-// ---------- ortak kurulum ----------
+// ---------- shared setup ----------
 
-/// Demo ayari: ~5 dk. Uretim onerisi 17280 (~1 gun).
+/// Demo setting: ~5 min. Suggested for production: 17280 (~1 day).
 pub const EXIT_DELAY: u32 = 60;
 
-/// Ham ed25519 anahtar. Ajanin sicak anahtari da operatorunki de bu.
+/// Raw ed25519 key. Both the agent's hot key and the operator's key are this.
 pub struct Key(pub SigningKey);
 
 impl Key {
@@ -36,7 +36,7 @@ pub struct Fix<'a> {
     pub token: testtoken::TestTokenClient<'a>,
     pub hub_addr: Address,
     pub token_addr: Address,
-    /// Golge defterin anahtari.
+    /// The shadow ledger's key.
     pub op: Key,
 }
 
@@ -73,7 +73,7 @@ pub fn setup() -> Fix<'static> {
 }
 
 impl Fix<'_> {
-    /// Fonlanmis bir adres uretir (cuzdanda, kasada degil).
+    /// Creates a funded address (in the wallet, not in the vault).
     pub fn funded(&self, amount: i128) -> Address {
         let a = Address::generate(&self.e);
         if amount > 0 {
@@ -87,7 +87,7 @@ impl Fix<'_> {
         self.e.ledger().set_sequence_number(s + ledgers);
     }
 
-    /// Kayitli katilimci: fonlanmis + join + kasaya yatirmis.
+    /// Registered participant: funded + joined + deposited into the vault.
     pub fn payer(&self, seed: u8, deposit: i128) -> (Address, Key) {
         let k = Key::new(seed);
         let a = self.funded(deposit);
@@ -98,13 +98,13 @@ impl Fix<'_> {
         (a, k)
     }
 
-    /// Iki imzali gecerli fis: odeyen imzalar, operator kabul eder.
-    /// Yukler kontrattan okunur, boylece iki taraf ayni bayti kullanir.
+    /// Valid voucher with two signatures: the payer signs, the operator accepts.
+    /// Payloads are read from the contract, so both sides use the same bytes.
     pub fn voucher(&self, payer: &Address, key: &Key, recipient: &Address, cumulative: i128) -> Voucher {
         self.voucher_by(payer, key, recipient, cumulative, &self.op)
     }
 
-    /// Kabulu verilen anahtarla atilan fis (sahte operator testleri icin).
+    /// Voucher accepted with the given key (for fake operator tests).
     pub fn voucher_by(
         &self,
         payer: &Address,
@@ -124,20 +124,20 @@ impl Fix<'_> {
         }
     }
 
-    /// Operatorun cekim onayi. Nonce kontrattan okunur.
+    /// The operator's withdrawal approval. The nonce is read from the contract.
     pub fn approval(&self, who: &Address, amount: i128, valid_until: u32) -> BytesN<64> {
         let nonce = self.hub.withdraw_nonce_of(who);
         let h = self.hub.withdraw_hash(who, &amount, &nonce, &valid_until);
         self.op.sign_hash(&self.e, &h)
     }
 
-    /// Sinirsiz butce (buyuk parti testleri icin).
+    /// Unlimited budget (for large batch tests).
     pub fn unlimited(&self) {
         self.e.cost_estimate().budget().reset_unlimited();
     }
 }
 
-// ================= kurulum =================
+// ================= setup =================
 
 #[test]
 fn test_constructor_stores_config() {
@@ -160,7 +160,7 @@ fn test_constructor_rejects_zero_exit_delay() {
     e.register(Hub, (token_addr, Key::new(1).pubkey(&e), 0u32));
 }
 
-// ================= kayit =================
+// ================= registration =================
 
 #[test]
 fn test_join_stores_signer() {
@@ -190,7 +190,7 @@ fn test_join_requires_auth() {
     assert_eq!(f.hub.signer_of(&p), None);
 }
 
-// ================= yatirma =================
+// ================= deposit =================
 
 #[test]
 fn test_deposit_credits_balance() {
@@ -198,13 +198,13 @@ fn test_deposit_credits_balance() {
     let p = f.funded(1000);
     f.hub.deposit(&p, &400);
     assert_eq!(f.hub.balance_of(&p), 400);
-    assert_eq!(f.token.balance(&f.hub_addr), 400, "token kontrata gecti");
+    assert_eq!(f.token.balance(&f.hub_addr), 400, "token moved to the contract");
     assert_eq!(f.token.balance(&p), 600);
 }
 
 #[test]
 fn test_deposit_needs_no_join() {
-    // Kasa paranin nereden geldigini sormaz. SPP eklentisi buna bagli.
+    // The vault does not ask where the money comes from. The SPP entry depends on this.
     let f = setup();
     let r = f.funded(100);
     f.hub.deposit(&r, &100);
@@ -258,7 +258,7 @@ fn test_ttl_extended_on_write() {
     let r = Address::generate(&f.e);
     f.hub.settle_one(&r, &f.voucher(&p, &k, &r, 100));
 
-    // TTL 30 gune uzatildigi icin 20 gun sonra bile okunabiliyor
+    // TTL was extended to 30 days, so it is still readable after 20 days
     f.advance(crate::storage::DAY_IN_LEDGERS * 20);
     assert_eq!(f.hub.balance_of(&r), 100);
     assert_eq!(f.hub.paid_between(&p, &r), 100);

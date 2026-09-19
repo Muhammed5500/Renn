@@ -1,5 +1,5 @@
-// Zincir katmani: RPC okuma, islem gonderme, olay okuma.
-// Hem defter sunucusu hem demo scriptleri kullaniyor.
+// Chain layer: RPC reads, sending transactions, reading events.
+// Used by the ledger server, the SDK and the demo scripts.
 
 import {
   Address,
@@ -34,14 +34,14 @@ export type VoucherArg = {
   opSig: string; // hex
 };
 
-// ---------- ScVal kurucular ----------
+// ---------- ScVal builders ----------
 
 const sym = (s: string) => xdr.ScVal.scvSymbol(s);
 const addr = (a: string) => Address.fromString(a).toScVal();
 const i128 = (n: bigint) => nativeToScVal(n, { type: "i128" });
 const bytes = (hex: string) => xdr.ScVal.scvBytes(Buffer.from(hex, "hex"));
 
-/** contracttype struct = anahtarlari SIRALI ScMap. */
+/** contracttype struct = ScMap with SORTED keys. */
 function struct(fields: [string, xdr.ScVal][]): xdr.ScVal {
   const sorted = [...fields].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
   return xdr.ScVal.scvMap(sorted.map(([k, v]) => new xdr.ScMapEntry({ key: sym(k), val: v })));
@@ -57,24 +57,24 @@ export function voucherScVal(v: VoucherArg): xdr.ScVal {
   ]);
 }
 
-// stellar-sdk 17'de XDR nesnelerinin okuma arayuzu degisti (.switch() yok):
-// okumalar scValToNative ile yapiliyor.
+// stellar-sdk 17 changed how XDR objects are read (no .switch()):
+// reads go through scValToNative.
 
 export const A = { sym, addr, i128, bytes, u32: (n: number) => nativeToScVal(n, { type: "u32" }), u64: (n: bigint) => nativeToScVal(n, { type: "u64" }) };
 
-// ---------- istemci ----------
+// ---------- client ----------
 
 export class Chain {
   cfg: ChainCfg;
   server: rpc.Server;
-  /** okuma simulasyonlari icin var olan herhangi bir hesap */
+  /** any existing account, used as the source of read simulations */
   reader: string;
   /**
-   * MONOTON OKUMA TABANI. Testnet RPC birden fazla dugum; geride kalan bir
-   * dugum, gordugumuz bir partiden ya da cekimden ONCEKI bakiyeyi dondurebilir.
-   * Defter o eski bakiyeyle bir odeyenin parasini oldugundan fazla sanir.
-   * observe(L) ile taban yukselir; tabandan eski durum okuyan simulasyon
-   * reddedilir ve tekrar denenir.
+   * MONOTONIC READ FLOOR. Testnet RPC is several nodes; a lagging node can
+   * return the balance from BEFORE a batch or withdrawal we have already seen.
+   * With that stale balance the ledger would think a payer holds more than it
+   * does. observe(L) raises the floor; a simulation that reads state older
+   * than the floor is rejected and retried.
    */
   floor = 0;
 
@@ -92,18 +92,18 @@ export class Chain {
     return (await this.server.getLatestLedger()).sequence;
   }
 
-  /** Kasa kontratinda salt okuma. Islem gondermez. */
+  /** Read-only call on the vault contract. Sends no transaction. */
   async read(method: string, args: xdr.ScVal[], contract = this.cfg.hub): Promise<xdr.ScVal> {
-    // Ag hatasinda iki kez daha dene. Simulasyon hatasi (kontrat hatasi) denenmez.
-    // Geride kalan dugum: 10 kez, saniyede bir dene (ledger ~5 sn).
+    // Network error: retry twice more. A simulation error (contract error) is not retried.
+    // Lagging node: retry 10 times, once per second (a ledger is ~5 s).
     let net = 0;
     for (let lag = 0; ; ) {
       try {
         return await this.readOnce(method, args, contract);
       } catch (e) {
         const msg = String(e);
-        if (msg.includes("simulasyonu basarisiz")) throw e;
-        if (msg.includes("RPC geride")) {
+        if (msg.includes("simulation failed")) throw e;
+        if (msg.includes("RPC behind")) {
           if (++lag > 10) throw e;
           await new Promise((r) => setTimeout(r, 1000));
           continue;
@@ -122,10 +122,10 @@ export class Chain {
       .build();
     const sim = await this.server.simulateTransaction(tx);
     if (!rpc.Api.isSimulationSuccess(sim)) {
-      throw new Error(`${method} simulasyonu basarisiz: ${(sim as { error?: string }).error}`);
+      throw new Error(`${method} simulation failed: ${(sim as { error?: string }).error}`);
     }
     if (sim.latestLedger < this.floor) {
-      throw new Error(`RPC geride: ${sim.latestLedger} < ${this.floor}`);
+      throw new Error(`RPC behind: ${sim.latestLedger} < ${this.floor}`);
     }
     return sim.result!.retval;
   }
@@ -134,7 +134,7 @@ export class Chain {
     return scValToNative(await this.read(method, args, contract));
   }
 
-  /** Islem gonder, sonucu bekle. Donus degeri ScVal. */
+  /** Send a transaction and wait for the result. The return value is an ScVal. */
   async invoke(kp: Keypair, method: string, args: xdr.ScVal[], contract = this.cfg.hub): Promise<{ hash: string; ret: xdr.ScVal | undefined; ledger: number }> {
     const acct = await this.server.getAccount(kp.publicKey());
     let tx = new TransactionBuilder(acct, { fee: "10000000", networkPassphrase: this.cfg.passphrase })
@@ -144,9 +144,9 @@ export class Chain {
     try {
       tx = await this.server.prepareTransaction(tx);
     } catch (e) {
-      // Testnet RPC birden fazla dugum: onaydan hemen sonra geride kalan bir
-      // dugum eski durumu simule edebilir. Bir kez bekleyip tekrar dene.
-      console.warn(`${method}: simulasyon basarisiz, 2 sn sonra tekrar deneniyor (${String(e).slice(0, 80)})`);
+      // Testnet RPC is several nodes: right after a confirmation a lagging
+      // node can simulate against old state. Wait once and try again.
+      console.warn(`${method}: simulation failed, retrying in 2 s (${String(e).slice(0, 80)})`);
       await new Promise((r) => setTimeout(r, 2000));
       tx = await this.server.prepareTransaction(tx);
     }
@@ -154,11 +154,11 @@ export class Chain {
     return this.submit(tx, method);
   }
 
-  /** Imzali islemi gonder, sonucu bekle. */
+  /** Send a signed transaction and wait for the result. */
   async submit(tx: Transaction | FeeBumpTransaction, label: string): Promise<{ hash: string; ret: xdr.ScVal | undefined; ledger: number }> {
     const sent = await this.server.sendTransaction(tx);
     if (sent.status === "ERROR") {
-      throw new Error(`${label} gonderilemedi: ${sent.hash} ${sent.errorResult?.toXDR("base64") ?? ""}`);
+      throw new Error(`${label} could not be sent: ${sent.hash} ${sent.errorResult?.toXDR("base64") ?? ""}`);
     }
     for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 1000));
@@ -168,13 +168,13 @@ export class Chain {
         return { hash: sent.hash, ret: res.returnValue, ledger: res.ledger };
       }
       if (res.status === rpc.Api.GetTransactionStatus.FAILED) {
-        throw new Error(`${label} basarisiz: ${sent.hash}`);
+        throw new Error(`${label} failed: ${sent.hash}`);
       }
     }
-    throw new Error(`${label} zaman asimi: ${sent.hash}`);
+    throw new Error(`${label} timed out: ${sent.hash}`);
   }
 
-  // ---------- kasa okumalari ----------
+  // ---------- vault reads ----------
 
   async balanceOf(who: string): Promise<bigint> {
     return BigInt((await this.readNative("balance_of", [addr(who)])) as bigint);
@@ -202,11 +202,11 @@ export class Chain {
     return BigInt((await this.readNative("balance", [addr(who)], this.cfg.token)) as bigint);
   }
 
-  // ---------- olaylar ----------
+  // ---------- events ----------
 
   /**
-   * Kasa olaylarini okur. `cursor` yoksa `startLedger`'dan baslar.
-   * Olay adi ilk topic (snake_case struct adi: deposited, exit_started ...).
+   * Reads vault events. Without `cursor` it starts at `startLedger`.
+   * The event name is the first topic (snake_case struct name: deposited, exit_started ...).
    */
   async events(from: { cursor?: string; startLedger?: number }): Promise<{
     events: { name: string; topics: unknown[]; data: Record<string, unknown>; ledger: number; tx: string }[];

@@ -1,9 +1,10 @@
-// Demo ve e2e scriptleri icin testnet yardimcilari.
-// Taze ajan hesabi: friendbot, token mint, join, deposit.
+// Testnet helpers for the demo and e2e scripts.
+// Fresh agent account: friendbot, token mint, join, deposit.
 //
-// ODEMELER GERCEK x402 v2: her ajanin satis ucu yerel "pazar" sunucusunda
-// (@x402/express paymentMiddleware), odeyen resmi istemciyle (@x402/fetch)
-// cagiriyor. Facilitator golge defter. Fis dogrudan deftere POSTALANMIYOR.
+// PAYMENTS ARE REAL x402 v2: each agent's selling endpoint lives on a local
+// "market" server (@x402/express paymentMiddleware), and the payer calls it
+// with the official client (@x402/fetch). The facilitator is the shadow
+// ledger. Vouchers are NOT posted to the ledger directly.
 
 import http from "node:http";
 import { execSync } from "node:child_process";
@@ -25,13 +26,13 @@ export const dep = JSON.parse(readFileSync(new URL("deployments.json", ROOT), "u
 export const LEDGER = process.env.LEDGER_URL ?? "http://localhost:8787";
 export const U = 10_000_000n;
 
-/** Token admini (test token'i mint edebilen). CLI kimligi `deployer`. */
+/** Token admin (can mint the test token). Stellar CLI identity `deployer`. */
 const deployer = Keypair.fromSecret(execSync("stellar keys show deployer").toString().trim());
 
 export const chain = new Chain({ ...TESTNET, hub: dep.hub, token: dep.token }, deployer.publicKey());
 export const hubCfg: P.HubCfg = { networkId: P.networkId(TESTNET.passphrase), hub: dep.hub };
 
-/** deployer'in islemleri SIRAYLA: ayni hesaptan paralel islem ayni sequence'i alir. */
+/** deployer transactions ONE AT A TIME: parallel transactions from one account get the same sequence number. */
 let deployerQueue: Promise<unknown> = Promise.resolve();
 function asDeployer<T>(fn: () => Promise<T>): Promise<T> {
   const p = deployerQueue.then(fn, fn);
@@ -46,18 +47,18 @@ export type TestAgent = {
   kp: Keypair;
   agent: Agent;
   address: string;
-  /** x402 odemeli fetch (resmi istemci + bizim sema). */
+  /** fetch that pays over x402 (official client + our scheme). */
   fetch: typeof fetch;
 };
 
-// ================= x402 pazari =================
+// ================= x402 market =================
 
 export const MARKET = process.env.MARKET_URL ?? "http://localhost:8792";
 let market: http.Server | null = null;
 
 /**
- * Her ajan icin bir satis ucu: GET /svc/<alici>?amount=<7 ondalikli tam sayi>.
- * Alici ve fiyat istekten gelir (x402'nin DynamicPayTo / DynamicPrice'i).
+ * One selling endpoint per agent: GET /svc/<recipient>?amount=<integer, 7 decimals>.
+ * Recipient and price come from the request (x402's DynamicPayTo / DynamicPrice).
  */
 export function startMarket() {
   if (market) return;
@@ -76,7 +77,7 @@ export function startMarket() {
             payTo: (ctx) => ctx.path.split("/")[2],
             price: (ctx) => ({ asset: dep.token, amount: String(ctx.adapter.getQueryParam?.("amount") ?? "0") }),
           },
-          description: "ajan servisi",
+          description: "agent service",
         },
       },
       rs,
@@ -90,13 +91,13 @@ const unb64 = (h: string | null) => (h ? JSON.parse(Buffer.from(h, "base64").toS
 
 export type PayResult = { status: "accepted"; seq: number } | { status: "refused"; reason: string };
 
-/** from, to'nun satis ucunu x402 ile cagirarak amount oder. */
+/** `from` pays `amount` by calling `to`'s selling endpoint over x402. */
 export async function pay(from: TestAgent, to: string, amount: bigint): Promise<PayResult> {
   startMarket();
   try {
     const r = await from.fetch(`${MARKET}/svc/${to}?amount=${amount}`);
     if (r.status === 200) return { status: "accepted", seq: unb64(r.headers.get("payment-response"))?.extra?.seq };
-    // Basarisiz settle'in sebebi x402'nin PAYMENT-RESPONSE basliginda (success:false)
+    // A failed settle's reason is in x402's PAYMENT-RESPONSE header (success:false)
     const sr = unb64(r.headers.get("payment-response"));
     const pr = unb64(r.headers.get("payment-required"));
     return { status: "refused", reason: sr?.errorReason ?? pr?.error ?? `http_${r.status}` };
@@ -110,7 +111,7 @@ async function fund(g: string) {
   if (!r.ok) throw new Error(`friendbot ${g}: ${r.status}`);
 }
 
-/** Taze, kayitli, yatirmis ajan. join=false ise saf alici. */
+/** Fresh agent, joined and funded. join=false makes a pure recipient. */
 export async function newAgent(
   name: string,
   deposit: bigint,
@@ -134,21 +135,21 @@ export async function newAgent(
   return asTestAgent(name, kp, agent);
 }
 
-/** Test token'i bas (deployer sirasiyla). */
+/** Mint the test token (through the deployer queue). */
 export function mint(to: string, amount: bigint) {
   return asDeployer(() => chain.invoke(deployer, "mint", [A.addr(to), A.i128(amount)], dep.token));
 }
 
-/** Var olan hesap ve fis anahtarindan x402 ile odeyebilen ajan. */
+/** Agent that pays over x402, from an existing account and voucher key. */
 export function asTestAgent(name: string, kp: Keypair, agent: Agent): TestAgent {
   const client = new x402Client()
     .register(NETWORK, new BatchSettlementStellarClient(agent))
-    // demo ajanlari icin bu token'a istek basina ust sinir yok
+    // no per-request cap on this token for demo agents
     .setSpendControls({ allowedAssets: [{ network: NETWORK, asset: dep.token }] });
   return { name, kp, agent, address: kp.publicKey(), fetch: wrapFetchWithPayment(fetch, client) };
 }
 
-/** Defterin bu adresleri olay beklemeden zincirden tazelemesini iste. */
+/** Ask the ledger to refresh these addresses from chain without waiting for events. */
 export async function track(addresses: string[], labels: Record<string, string> = {}) {
   await fetch(`${LEDGER}/track`, {
     method: "POST",
@@ -165,9 +166,9 @@ export async function settleNow() {
   return (await (await fetch(`${LEDGER}/flush`, { method: "POST" })).json()) as any;
 }
 
-/** Operator onayli cekim: defterden onay al, kendi imzanla cek. */
+/** Operator-approved withdrawal: get the ledger's approval, withdraw with your own signature. */
 export async function withdrawApproved(a: TestAgent, amount: bigint) {
-  // Istek ajanin fis anahtariyla imzali (defter sahibini dogrular)
+  // The request is signed with the agent's voucher key (the ledger checks the owner)
   const nonce = await chain.withdrawNonceOf(a.address);
   const sig = P.signHex(a.agent.key, P.withdrawRequestHash(hubCfg, a.address, amount, nonce));
   const r = await fetch(`${LEDGER}/withdraw`, {

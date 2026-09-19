@@ -1,12 +1,12 @@
-//! Olaylar.
+//! Events.
 //!
-//! CAP-86 UYARISI (Protocol 28): degeri bos olan alanlar artik yayinlanmiyor.
-//! Event testlerini alan ADINA gore yaz, pozisyona gore degil.
+//! CAP-86 WARNING (Protocol 28): fields with empty values are no longer
+//! published. Write event tests by field NAME, not by position.
 //!
-//! Golge defter `Joined`, `Deposited`, `ExitStarted`, `Withdrawn` ve `Settled`
-//! olaylarini dinliyor. Alan adlarini DEGISTIRME.
+//! The shadow ledger listens to `Joined`, `Deposited`, `ExitStarted`,
+//! `Withdrawn` and `Settled`. Do NOT rename fields.
 //!
-//! v3.3: makbuz yok, kayit bu olaylardan okunur.
+//! v3.3: no receipts, the record is read from these events.
 
 use soroban_sdk::{contractevent, Address, BytesN, Symbol};
 
@@ -61,7 +61,7 @@ pub struct Withdrawn {
     #[topic]
     pub who: Address,
     pub amount: i128,
-    /// approved = operator onayli, exit = kacis yolu,
-    /// free = kayitsiz alici, pushed = izinsiz payout
+    /// approved = approved by the operator, exit = escape hatch,
+    /// free = unregistered recipient, pushed = permissionless payout
     pub path: Symbol,
 }

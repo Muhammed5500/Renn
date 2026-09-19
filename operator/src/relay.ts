@@ -1,17 +1,17 @@
-// Relayer: gizli giris icin ucret odeyen hesap (R). Kimsenin parasini tasiyamaz.
+// Relayer: the account (R) that pays fees for private entry. It cannot move anyone's money.
 //
-// Gizli giris akisi (SPP):
-//   W (bilinen cuzdan) --deposit--> SPP havuzu --withdraw--> F (taze adres) --> kasa
-// F'nin W ile baglantisi kopuk olmali. F'nin hicbir islemi W'den XLM almamali,
-// yoksa zincirde W -> F izi kalir. O yuzden F'nin butun ucretlerini R oder:
+// Private entry flow (SPP):
+//   W (known wallet) --deposit--> SPP pool --withdraw--> F (fresh address) --> vault
+// F must stay unlinked from W. None of F's transactions may take XLM from W,
+// or the chain would show a W -> F trail. So R pays all of F's fees:
 //
-//   1. /relay/spp-sign  SPP cekiminin kaynagi ve odeyeni R (spp --sign-as).
-//                       Ispat W'nin makinesinde uretilir, R sadece imzalar.
-//   2. /relay/account   F'yi 0 XLM ile acar; rezervi R sponsorlar.
-//   3. /relay/fee-bump  F'nin kasa join/deposit islemini R'nin ucretiyle gonderir.
+//   1. /relay/spp-sign  R is source and fee payer of the SPP withdrawal (spp --sign-as).
+//                       The proof is made on W's machine; R only signs.
+//   2. /relay/account   Opens F with 0 XLM; R sponsors the reserve.
+//   3. /relay/fee-bump  Sends F's vault join/deposit with R paying the fee.
 //
-// Her uc sadece kendi dar islem sekline imza atar. R'nin imzasi hicbir islemde
-// R'nin token'ini ya da baskasinin parasini hareket ettiremez.
+// Each endpoint signs only its own narrow transaction shape. In no transaction
+// can R's signature move R's tokens or anyone else's money.
 
 import {
   Address,
@@ -29,9 +29,9 @@ export type RelayCfg = {
   passphrase: string;
   hub: string;
   sppPool: string;
-  /** Tek islem icin R'nin odeyecegi en fazla ucret (stroop). */
+  /** Maximum fee R pays for one transaction (stroops). */
   maxFee: number;
-  /** IP basina saatlik istek siniri. */
+  /** Hourly request limit per IP. */
   perHour: number;
 };
 
@@ -40,7 +40,7 @@ type Refusal = { error: string };
 const fnName = (s: { toString(): string } | { bytes: Uint8Array }) =>
   "bytes" in s ? Buffer.from(s.bytes).toString() : s.toString();
 
-/** Tek invokeContract islemini ac: [kontrat, fonksiyon, argumanlar, auth]. */
+/** Unpack a single invokeContract operation: [contract, function, args, auth]. */
 function singleInvoke(tx: Transaction) {
   if (tx.operations.length !== 1) return null;
   const op = tx.operations[0] as Operation.InvokeHostFunction;
@@ -56,7 +56,7 @@ function singleInvoke(tx: Transaction) {
   };
 }
 
-/** Kaynak hesap yetkisiyle imzalanan her auth kokunun izinli cagri olmasi. */
+/** Every auth root signed with source-account credentials must be an allowed call. */
 function sourceAuthOnly(auth: any[], contract: string, fns: string[], allowSub: boolean): boolean {
   for (const a of auth) {
     if (a.credentials.type !== "sorobanCredentialsSourceAccount") continue;
@@ -86,7 +86,7 @@ export class Relayer {
     return this.kp.publicKey();
   }
 
-  /** Saatlik sinir. true = izin. */
+  /** Hourly limit. true = allowed. */
   allow(ip: string): boolean {
     const now = Date.now();
     const h = (this.hits.get(ip) ?? []).filter((t) => now - t < 3_600_000);
@@ -97,9 +97,9 @@ export class Relayer {
   }
 
   /**
-   * SPP cekimini R adina imzala. Sadece: kaynak R, tek islem, bizim havuz,
-   * transact, gonderen R, tutar NEGATIF (cekim). Yatirma olsaydi havuz
-   * gonderenin (R'nin) token'ini cekerdi.
+   * Sign an SPP withdrawal on R's behalf. Only: source R, a single operation,
+   * our pool, transact, sender R, NEGATIVE amount (withdrawal). A deposit
+   * would make the pool pull the sender's (R's) tokens.
    */
   signSppWithdraw(txXdr: string): { xdr: string } | Refusal {
     let tx: Transaction;
@@ -131,8 +131,9 @@ export class Relayer {
   }
 
   /**
-   * F'yi 0 XLM ile acan islem: R rezervi sponsorlar. R imzali doner; F kendi
-   * imzasini ekleyip gonderir (EndSponsoring F'nin islemi).
+   * Transaction that opens F with 0 XLM: R sponsors the reserve. Returned
+   * signed by R; F adds its own signature and submits (EndSponsoring is F's
+   * operation).
    */
   async sponsorAccount(address: string): Promise<{ xdr: string } | Refusal> {
     try {
@@ -157,9 +158,10 @@ export class Relayer {
   }
 
   /**
-   * F'nin kendi imzaladigi kasa islemini R'nin ucretiyle gonder. Sadece:
-   * tek islem, bizim kasa, join ya da deposit, ilk arguman islemin kaynagi
-   * (F kendi adina). deposit'in token transferi F'nin kendi parasi.
+   * Submit F's own signed vault transaction with R paying the fee. Only:
+   * a single operation, our vault, join or deposit, first argument equal to
+   * the transaction source (F on its own behalf). deposit's token transfer is
+   * F's own money.
    */
   async feeBump(innerXdr: string): Promise<{ hash: string } | Refusal> {
     let inner: Transaction;

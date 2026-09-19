@@ -1,21 +1,21 @@
-// ADIM D1 - Uc imza yuku, kontrattaki voucher.rs ile BAYT BAYT AYNI.
+// Step D1 - The three signed payloads, BYTE-IDENTICAL to the contract's voucher.rs.
 //
-//   Fis   ("batchv3",  network_id, hub, payer, recipient, cumulative)
-//   Kabul ("acceptv1", network_id, hub, payer, recipient, cumulative)
-//   Cekim ("withdrv1", network_id, hub, who, amount, nonce, valid_until)
+//   Voucher    ("batchv3",  network_id, hub, payer, recipient, cumulative)
+//   Acceptance ("acceptv1", network_id, hub, payer, recipient, cumulative)
+//   Withdrawal ("withdrv1", network_id, hub, who, amount, nonce, valid_until)
 //
-// Hepsi sha256( XDR( ScVal::Vec(tuple) ) ), uzerinde ed25519.
+// Each is sha256( XDR( ScVal::Vec(tuple) ) ), signed with ed25519.
 //
-// Imza tutmuyorsa suclu neredeyse her zaman serilestirme farkidir. Kontrattaki
-// `*_preimage` fonksiyonlarini cagir, ham baytlari karsilastir
-// (test/payload.test.ts bunu dondurulmus vektorlerle yapiyor).
+// If a signature does not verify, the culprit is almost always a serialization
+// difference. Call the contract's `*_preimage` functions and compare the raw
+// bytes (test/payload.test.ts does this with frozen vectors).
 
 import { Address, Keypair, hash, nativeToScVal, xdr } from "@stellar/stellar-sdk";
 
 export type HubCfg = {
   /** sha256(network passphrase) */
   networkId: Buffer;
-  /** kasa kontratinin C... adresi */
+  /** C... address of the vault contract */
   hub: string;
 };
 
@@ -30,7 +30,7 @@ function pairPreimage(
   recipient: string,
   cumulative: bigint,
 ): Buffer {
-  // stellar-sdk 17 Uint8Array donduruyor; hex icin Buffer'a sar.
+  // stellar-sdk 17 returns Uint8Array; wrap in Buffer for hex.
   return Buffer.from(xdr.ScVal.scvVec([
     xdr.ScVal.scvSymbol(domain),
     xdr.ScVal.scvBytes(c.networkId),
@@ -77,19 +77,19 @@ export const withdrawHash = (c: HubCfg, who: string, amount: bigint, nonce: bigi
   sha(withdrawPreimage(c, who, amount, nonce, until));
 
 /**
- * Cekim ISTEGI (zincir disi, sadece defter dogrular). Ajan kendi fis
- * anahtariyla imzalar; boylece baskasi onun adina para ayirtip parasini
- * donduramaz. nonce = kontrattaki withdraw_nonce_of: ayni istek tekrar
- * gonderilirse ikinci ayirma yapilmaz.
+ * Withdrawal REQUEST (off-chain, only the ledger verifies it). The agent signs
+ * it with its own voucher key, so nobody else can reserve its money and freeze
+ * it. nonce = the contract's withdraw_nonce_of: if the same request is sent
+ * again, no second reservation is made.
  */
 export const withdrawRequestHash = (c: HubCfg, who: string, amount: bigint, nonce: bigint) =>
   sha(Buffer.from(`gd-withdraw-request|${c.networkId.toString("hex")}|${c.hub}|${who}|${amount}|${nonce}`));
 
-// ---------- ham ed25519 (Stellar hesabi degil, fis anahtari) ----------
+// ---------- raw ed25519 (the voucher key, not a Stellar account) ----------
 
 export function keyFromSeed(seedHex: string): Keypair {
   const seed = Buffer.from(seedHex, "hex");
-  if (seed.length !== 32) throw new Error("seed 32 bayt olmali");
+  if (seed.length !== 32) throw new Error("seed must be 32 bytes");
   return Keypair.fromRawEd25519Seed(seed);
 }
 
@@ -97,7 +97,7 @@ export function pubHex(k: Keypair): string {
   return Buffer.from(k.rawPublicKey()).toString("hex");
 }
 
-/** HASH'i imzala, ham XDR'i DEGIL (kontrat testi: signing_raw_xdr_instead_of_hash_fails). */
+/** Sign the HASH, NOT the raw XDR (contract test: signing_raw_xdr_instead_of_hash_fails). */
 export function signHex(k: Keypair, h: Buffer): string {
   return Buffer.from(k.sign(h)).toString("hex");
 }
