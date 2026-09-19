@@ -12,7 +12,7 @@ Plan: `Son 2 Plan/PLAN-golge-defter.md` v3.3, §10.
 | Birden fazla operatör | Yok | Sıra tek bir yer gerektiriyor. Birden fazla operatör bir uzlaşı protokolü demek. |
 | Anahtar döndürme | Yok | `join` tek seferlik. Sıcak fiş anahtarı çalınırsa katılımcı `exit_start` ile çıkıp yeni adresle girmek zorunda. |
 | Kapsam / tavanlar (izin listesi, alıcı ve tur tavanı, süre) | Kaldırıldı (v3.3.1) | Ajanın kandırılması veya anahtarının çalınması cüzdanın işi, ödeme rayının değil. Ray sadece olmayan paranın harcanamamasını garanti ediyor. Harcama politikası alanı da zaten doymuş. |
-| Gizlilik | Yok | Defter açık ve takma adlı. SPP (sınır) kontratta sıfır değişiklik istiyor. Kapalı defter + ZK geçerlilik kanıtı SCF işi. |
+| Defter içi gizlilik | Yok | Girişte gizlilik var (SPP, README "Private entry"). Kasa içinde operatör kimin kime ödediğini görüyor, uzlaşan çiftler zincirde görünüyor. Kaan (SDF): zincir dışı kısmın gizliliğe gömülmesine gerek yok. |
 
 ## v3.2'den taşınan not
 
@@ -49,3 +49,16 @@ zincirde kimse elenmiyor.
 - **Parti tetikleyicisi istendiği ana kadarkini gönderir.** Parti uçuştayken
   gelen fişler kendi tetikleyicisini bekler. Önceki halinde döngü yeni fişleri
   de alıp yoğun trafikte durmadan parti gönderebiliyordu.
+- **SPP yatırmaları sırayla.** Aynı havuza aynı anda iki yatırma: ikisi de aynı
+  ağaç durumuna göre hazırlandığı için biri zincirde reddediliyor (paralel
+  denemede görüldü). Script'ler sırayla yatırıyor.
+- **Relayer tek hesap.** SPP çekiminde kaynak relayer, sıra numarasını o kullanıyor.
+  Aynı anda bir hesap açma isteği gelirse biri sıra çakışmasıyla düşer, tekrar
+  denenmeli. Fee-bump sıra numarası kullanmıyor.
+- **Relayer IP görüyor.** Aynı IP'den gelen çekim imzası ve hesap açma isteği
+  zincir dışında ilişkilendirilebilir. Zincirdeki bağlantı kopuk.
+- **SPP havuzu bizim, doğrulayıcı ve ASP paylaşımlı.** Havuz kontratı SPP'nin
+  resmi wasm'ı (hash ff8743f9…), bizim token için kuruldu, sadece engel listesi
+  politikası. ASP üyelik ağacına kimseyi eklemek gerekmiyor. Doğrulayıcı ve ASP
+  kontratları SPP'nin testnet kurulumu; güvenilir kurulum yerel test kurulumu,
+  denetlenmemiş.

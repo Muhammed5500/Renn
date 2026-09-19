@@ -39,6 +39,7 @@ spendable(x) = on-chain balance - reserved withdrawals + unsettled incoming - un
 | 3. Bounced cheque | Empty payer tries to pay. A payer tries to promise the same 10 twice | Both refused instantly: `insufficient_spendable` |
 | 4. Withdrawal | An agent with 50 pays 3, then withdraws 20 | Approved instantly, **no batch**: 3 of the 50 are promised, 20 are free. Tokens in the wallet in 4-8 s, no exit delay. [tx](https://stellar.expert/explorer/testnet/tx/d403dbcc366ec35f1e5169b8aedb30673881b53510764eb473458339b254e5f6) |
 | 5. Operator down | A recipient settles its own accepted voucher without the ledger. A payer starts the escape hatch | [settle_one](https://stellar.expert/explorer/testnet/tx/bde1f1dadc08c4ff4a5d27204b450b7c4ef577b9efe16f2009b437e048ae4814), [exit_start](https://stellar.expert/explorer/testnet/tx/0d1ee7595d0a267b0764fdc0856113080227dd1092509467a9961cccd2e0d725) |
+| 6. Private entry | Three wallets deposit 10 each into our SPP pool. One withdraws to a fresh F, which joins the vault with 0 XLM and pays over x402 | No wallet address in any of F's 4 transactions. F is one of three. [withdrawal](https://stellar.expert/explorer/testnet/tx/de3c7df89ed6928afc1e11a563ce050f33e0913ca281897e89151c8c2784942a) |
 
 Every payment above goes through x402: the payer calls a paid endpoint with the official client, gets a 402, signs a voucher, and the resource server's official middleware asks the ledger (the facilitator) to settle before serving.
 
@@ -75,6 +76,32 @@ Agent safety (a compromised or misled agent spending what it legitimately holds)
 
 **The operator can't touch your money. The worst it can do is stop, and then you withdraw yourself.**
 
+## Private entry (SPP)
+
+Vault balances are pseudonymous, but deposits are public: anyone can see which wallet funded which vault address. An agent that wants its vault address unlinked from its known wallet enters through a [Stellar Private Payments](https://github.com/NethermindEth/stellar-private-payments) (SPP) pool:
+
+```
+W (known wallet) --deposit--> SPP pool --withdraw--> F (fresh address) --join, deposit--> vault
+```
+
+- **The pool is ours.** Nethermind's pool contract, the unchanged wasm, deployed for our token with a blocklist-only policy. It shares SPP's testnet verifier and ASP contracts (`spp/deployments.json`). The vault contract did not change.
+- **The official SPP CLI, unchanged.** Groth16 proofs are generated on the agent's machine.
+- **F never holds XLM.** If W paid any of F's fees, the chain would show W → F. A relayer (operator-run, with its own key) pays every fee on F's side:
+  - `POST /relay/spp-sign` signs the SPP withdrawal as source and fee payer. The CLI reaches it through `ledger/spp-shim`, a stand-in for the `stellar` binary that handles only the alias `gd-relay` and passes everything else to the real CLI.
+  - `POST /relay/account` opens F with 0 XLM. The relayer sponsors the reserve.
+  - `POST /relay/fee-bump` pays for F's own `join` and `deposit`.
+- **The relayer signs three shapes only:** an SPP withdrawal (negative amount) with itself as source and sender, a sponsorship for a new account, and a vault `join`/`deposit` by the transaction's own source. None of them moves anyone's tokens, including its own. `check-private.ts` submits nine other shapes, and the relayer refuses all of them.
+
+`ledger/scripts/check-private.ts` on testnet: three wallets deposit 10 each, and one of them withdraws to F. A byte scan of the withdrawal and of F's three transactions finds none of the three wallets. F has 0 XLM, its sponsor is the relayer, and it pays over x402 like any other agent.
+
+What this hides and what it doesn't:
+
+- It hides **which** wallet funded F. F could be any depositor of the same amount.
+- **Amounts and timing are public.** Depositing 10.37 and withdrawing 10.37 a minute later links the two. Use round amounts and wait.
+- **The anonymity set is the pool's depositors.** With three depositors, F is one of three.
+- The relayer sees request IPs, which is off-chain.
+- SPP is unaudited. Its trusted setup is a local test setup. Testnet only.
+
 ## Measured limits
 
 From `LIMITS.md` (simulation on testnet, two `ed25519_verify` per voucher):
@@ -108,8 +135,12 @@ ledger/src/core.ts     the ledger's rules. Pure: no network, no clock, no crypto
 ledger/src/server.ts   x402 facilitator (/supported, /verify, /settle) + batcher + chain watcher
 ledger/src/x402.ts     x402 scheme: BatchSettlementStellarServer, BatchSettlementStellarClient
 ledger/src/payload.ts  the three signed payloads, byte-identical to the contract
+ledger/src/relay.ts    relayer for private entry: /relay/spp-sign, /relay/account, /relay/fee-bump
+ledger/src/private.ts  agent side of private entry: sponsored account, fee-bumped join/deposit
+ledger/spp-shim        `stellar` stand-in so the official SPP CLI can use the remote relayer
 ledger/ui/index.html   live dashboard served by the ledger (GET /), fed by /feed and /state
-ledger/scripts         demo.ts, e2e.ts, limits.ts, check-*.ts
+ledger/scripts         demo.ts, e2e.ts, limits.ts, spp.ts, check-*.ts
+spp/deployments.json   our SPP pool (RTUSD), in the SPP CLI's deployment format
 docs/                  x402 scheme binding spec
 ```
 
@@ -124,20 +155,30 @@ cargo test                      # 76 contract tests + 5 token tests
 stellar contract build
 
 cd ledger && npm install
-npm test                        # 26 ledger tests, including the prefix and withdrawal properties
-AUTO_SETTLE=0 npm start         # ledger on :8787 (needs ../.env with OPERATOR_SEED)
-node scripts/demo.ts            # scenes 0-5 on testnet, every payment over x402
+npm test                        # 29 ledger tests, including the prefix and withdrawal properties
+AUTO_SETTLE=0 npm start         # ledger on :8787 (needs ../.env with OPERATOR_SEED; RELAYER_SECRET enables /relay)
+node scripts/demo.ts            # scenes 0-6 on testnet, every payment over x402
 node scripts/check-x402.ts      # x402 v2 wire-format and refusal checks
 # live dashboard: http://localhost:8787
 ```
 
 The demo scripts mint test tokens with the `deployer` identity of the Stellar CLI.
 
+Private entry (scene 6, `check-private.ts`) also needs the SPP CLI and its circuits:
+
+```bash
+git clone https://github.com/NethermindEth/stellar-private-payments && cd stellar-private-payments
+cargo build --release -p stellar-private-payments-cli     # target/release/spp (tested at 10ffa0e)
+# circuits: the circuits-v0.4 release tarball of the SPP repo, checked against deployments/testnet/circuits.json
+export SPP_BIN=/path/to/spp SPP_CIRCUITS=/path/to/circuits
+node scripts/check-private.ts
+```
+
 ## Honest notes
 
 - **There is an operator, on purpose.** Ordering needs one place. It can censor and it can go down. It cannot steal and it cannot lock.
 - **Recipients trust the operator on solvency.** If it accepts a bad voucher, the recipient loses. The ledger is public and every voucher is signed, so the mistake is provable, but nothing compensates it yet (roadmap: operator bond).
-- **The ledger is public and pseudonymous.** Payment traffic is visible. Privacy is on the roadmap: SPP at the boundary needs zero contract changes, a closed ledger with a ZK validity proof is the full version.
+- **Entry can be private, payments inside are not.** SPP unlinks a vault address from the wallet that funded it (see Private entry). Inside the vault, the operator sees who pays whom, and settled pairs are visible on chain.
 - **In escape mode netting can need ordering.** If the operator is down, recipients settle their own vouchers one by one, and in a cycle someone may have to wait for another to settle first.
 - **x402 binding not upstream.** The scheme follows the x402 v2 interfaces and runs with the official packages, but the Stellar `batch-settlement` binding is ours; it is not part of the x402 repository (see issue #3341).
 - **No audit.** Hackathon code.
