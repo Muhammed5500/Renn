@@ -4,7 +4,9 @@
 import {
   Address,
   Contract,
+  FeeBumpTransaction,
   Keypair,
+  Transaction,
   TransactionBuilder,
   nativeToScVal,
   rpc,
@@ -149,9 +151,14 @@ export class Chain {
       tx = await this.server.prepareTransaction(tx);
     }
     tx.sign(kp);
+    return this.submit(tx, method);
+  }
+
+  /** Imzali islemi gonder, sonucu bekle. */
+  async submit(tx: Transaction | FeeBumpTransaction, label: string): Promise<{ hash: string; ret: xdr.ScVal | undefined; ledger: number }> {
     const sent = await this.server.sendTransaction(tx);
     if (sent.status === "ERROR") {
-      throw new Error(`${method} gonderilemedi: ${sent.hash}`);
+      throw new Error(`${label} gonderilemedi: ${sent.hash} ${sent.errorResult?.toXDR("base64") ?? ""}`);
     }
     for (let i = 0; i < 60; i++) {
       await new Promise((r) => setTimeout(r, 1000));
@@ -161,10 +168,10 @@ export class Chain {
         return { hash: sent.hash, ret: res.returnValue, ledger: res.ledger };
       }
       if (res.status === rpc.Api.GetTransactionStatus.FAILED) {
-        throw new Error(`${method} basarisiz: ${sent.hash}`);
+        throw new Error(`${label} basarisiz: ${sent.hash}`);
       }
     }
-    throw new Error(`${method} zaman asimi: ${sent.hash}`);
+    throw new Error(`${label} zaman asimi: ${sent.hash}`);
   }
 
   // ---------- kasa okumalari ----------

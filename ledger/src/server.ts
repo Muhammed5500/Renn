@@ -21,6 +21,7 @@ import { LedgerCore, pairKey, type Entry } from "./core.ts";
 import * as P from "./payload.ts";
 import { Chain, TESTNET, voucherScVal, A } from "./chain.ts";
 import { SCHEME, NETWORK, type VoucherPayload } from "./x402.ts";
+import { Relayer } from "./relay.ts";
 
 // ================= ayarlar =================
 
@@ -56,6 +57,25 @@ if (P.pubHex(opKp) !== dep.operator) throw new Error(".env'deki operator anahtar
 const hubCfg: P.HubCfg = { networkId: P.networkId(TESTNET.passphrase), hub: dep.hub };
 const chain = new Chain({ ...TESTNET, hub: dep.hub, token: dep.token }, opKp.publicKey());
 const core = new LedgerCore();
+
+/** Gizli giris (SPP) relayer'i. .env'de RELAYER_SECRET yoksa kapali. */
+const spp = existsSync(new URL("spp/deployments.json", ROOT))
+  ? JSON.parse(readFileSync(new URL("spp/deployments.json", ROOT), "utf8"))
+  : null;
+const relayer =
+  env.RELAYER_SECRET && spp
+    ? new Relayer(
+        env.RELAYER_SECRET,
+        {
+          passphrase: TESTNET.passphrase,
+          hub: dep.hub,
+          sppPool: spp.pools[0].poolContractId,
+          maxFee: Number(process.env.RELAY_MAX_FEE ?? 10_000_000),
+          perHour: Number(process.env.RELAY_PER_HOUR ?? 60),
+        },
+        chain,
+      )
+    : null;
 
 // ================= yardimcilar =================
 
@@ -593,6 +613,28 @@ const server = http.createServer(async (req, res) => {
       const out = await approveWithdraw(await readBody(req));
       return send(out.status === "approved" ? 200 : 400, out);
     }
+    if (url.pathname.startsWith("/relay/")) {
+      if (!relayer) return send(404, { error: "relay_disabled" });
+      if (req.method === "GET" && url.pathname === "/relay/info") {
+        return send(200, { address: relayer.address, hub: dep.hub, sppPool: relayer.cfg.sppPool });
+      }
+      if (req.method !== "POST") return send(404, { error: "yok" });
+      // Saatlik sinir disaridan gelenler icin (operatorun kendi makinesi haric)
+      const ip = req.socket.remoteAddress ?? "";
+      if (!LOCAL.has(ip) && !relayer.allow(ip)) return send(429, { error: "rate_limited" });
+      const b = await readBody(req);
+      const out =
+        url.pathname === "/relay/spp-sign"
+          ? relayer.signSppWithdraw(String(b.xdr ?? ""))
+          : url.pathname === "/relay/account"
+            ? await relayer.sponsorAccount(String(b.address ?? ""))
+            : url.pathname === "/relay/fee-bump"
+              ? await relayer.feeBump(String(b.xdr ?? ""))
+              : { error: "yok" };
+      if ("error" in out) console.warn(`relay ${url.pathname} reddedildi: ${out.error}`);
+      else emit("relay", { path: url.pathname });
+      return send("error" in out ? 400 : 200, out);
+    }
     if (req.method === "POST" && url.pathname === "/flush") {
       await flushUpTo(core.seq);
       return send(200, stateView());
@@ -658,6 +700,7 @@ async function boot() {
   server.listen(PORT, () => {
     console.log(`golge defter: http://localhost:${PORT}  hub ${dep.hub}`);
     console.log(`operator: ${opKp.publicKey()}`);
+    console.log(relayer ? `relayer (gizli giris): ${relayer.address}  SPP havuzu ${relayer.cfg.sppPool}` : "relayer kapali (RELAYER_SECRET yok)");
     console.log(
       AUTO_SETTLE
         ? `parti: her ${ROUND_MS / 1000} sn | ${MAX_PAIRS} cift | toplam ${Number(MAX_UNSETTLED) / 1e7} | alici basina ${Number(MAX_RECIPIENT_UNSETTLED) / 1e7} (hangisi once)`
