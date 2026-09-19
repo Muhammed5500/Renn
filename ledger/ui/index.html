@@ -258,7 +258,8 @@ function connect() {
     $("net").innerHTML = renderNet(
       `Uzlaştı: ${sinceBatch} ödeme, 1 işlem. ${skipped} <a target="_blank" rel="noopener" href="https://stellar.expert/explorer/testnet/tx/${e.hash}">işlemi gör</a>`,
       [...pendingPairs]);
-    addEvent(`parti · ${e.settled} fiş · <a target="_blank" rel="noopener" href="https://stellar.expert/explorer/testnet/tx/${e.hash}">${short(e.hash)}</a>`);
+    const WHY = { time: "süre", capacity: "kapasite", total: "toplam tutar", recipient: "alıcı tutarı", exit: "çıkış ilanı", withdraw: "çekim", manual: "elle" };
+    addEvent(`parti · sebep: ${esc(WHY[e.reason] || e.reason || "?")} · ${e.settled} fiş · <a target="_blank" rel="noopener" href="https://stellar.expert/explorer/testnet/tx/${e.hash}">${short(e.hash)}</a>`);
     pendingPairs = new Map();
     sinceBatch = 0;
     $("h-pay").textContent = "0";

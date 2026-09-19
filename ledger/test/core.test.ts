@@ -192,6 +192,36 @@ test("reconcile: disaridan uzlastirilmis fis kayittan duser", () => {
   assert.equal(l.spendable("B"), 5n * U);
 });
 
+test("tetikleyici_ozeti: cift sayisi fis sayisi degil, tutar ve en buyuk alici", () => {
+  const l = world({ A: 100n * U, B: 50n * U, C: 0n, D: 0n });
+  for (let i = 0; i < 50; i++) pay(l, "A", "C", U); // 50 fis, TEK cift
+  pay(l, "A", "D", 3n * U);
+  pay(l, "B", "C", 7n * U);
+  const s = l.unsettledSummary();
+  assert.equal(l.entries.length, 52, "52 fis");
+  assert.equal(s.pairs, 3, "ama 3 cift: A-C, A-D, B-C");
+  assert.equal(s.total, 60n * U);
+  assert.equal(s.topRecipient, "C");
+  assert.equal(s.topRecipientAmount, 57n * U);
+  l.markInflight(l.cutBatch(100)!);
+  assert.equal(l.unsettledSummary().pairs, 3, "ucustaki parti hala uzlasmamis sayilir");
+  l.batchSettled();
+  assert.deepEqual(l.unsettledSummary(), { pairs: 0, total: 0n, topRecipient: null, topRecipientAmount: 0n });
+});
+
+test("reconcile_monoton: geride kalan RPC'den gelen eski paid okumasi yok sayilir", () => {
+  const l = world({ A: 20n * U, B: 0n });
+  pay(l, "A", "B", 5n * U);
+  l.markInflight(l.cutBatch(100)!);
+  l.batchSettled(); // zincirde paid(A,B) = 5
+  pay(l, "A", "B", 3n * U); // uzlasmamis 3 daha
+  const before = l.spendable("A");
+  // eski dugum partiden ONCEKI durumu dondurdu: paid 0
+  l.reconcile(new Map(), new Map([["A|B", 0n]]));
+  assert.equal(l.paid("A", "B"), 5n * U, "zincirde odenen geri dusmedi");
+  assert.equal(l.spendable("A"), before, "harcanabilir sisirilmedi");
+});
+
 // ================= cekim ayirma =================
 
 test("cekim_ayirma: ayrilan harcanamaz, sure dolunca serbest", () => {

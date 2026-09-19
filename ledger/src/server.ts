@@ -34,10 +34,17 @@ const env = Object.fromEntries(
 );
 
 const PORT = Number(process.env.PORT ?? 8787);
-/** Otomatik parti araligi (AUTO_SETTLE acikken). */
-const ROUND_MS = Number(process.env.ROUND_MS ?? 30_000);
-/** Parti basina en fazla cift. Olculen sinir ~190 (LIMITS.md), %75 pay. */
+// ---- parti tetikleyicileri (AUTO_SETTLE acikken; hangisi once gelirse) ----
+/** Sure: uzlasmamis fis varsa bu aralikla parti. Demo 30 sn, varsayilan 5 dk. */
+const ROUND_MS = Number(process.env.ROUND_MS ?? 300_000);
+/** Kapasite: uzlasmamis FARKLI cift sayisi. Ayni zamanda islem basina sinir.
+ *  Olculen sinir ~190 cift (LIMITS.md), %75 pay. */
 const MAX_PAIRS = Number(process.env.MAX_PAIRS ?? 150);
+/** Tutar: uzlasmamis toplam (7 ondalikli tam sayi). Varsayilan 1000 birim. */
+const MAX_UNSETTLED = BigInt(process.env.MAX_UNSETTLED ?? 1000n * 10_000_000n);
+/** Tutar: tek bir alicinin bekleyen alacagi. Varsayilan 100 birim. Operatore
+ *  guvenilen tutari sinirlar: buyuk odemeler beklemeden zincire yazilir. */
+const MAX_RECIPIENT_UNSETTLED = BigInt(process.env.MAX_RECIPIENT_UNSETTLED ?? 100n * 10_000_000n);
 const LOG = new URL(process.env.LEDGER_LOG ?? "ledger.log", new URL("../", import.meta.url));
 const AUTO_SETTLE = process.env.AUTO_SETTLE !== "0";
 /** x402 istemcilerinin defteri bulacagi adres (/supported'da ilan edilir). */
@@ -82,7 +89,16 @@ function remember(x: string) {
   if (logReady) log({ t: "known", a: x });
 }
 let logReady = false;
-const stats = { accepted: 0, refused: 0, batches: 0, lastBatchTx: "", hubToken: 0n };
+const stats = {
+  accepted: 0,
+  refused: 0,
+  batches: 0,
+  lastBatchTx: "",
+  hubToken: 0n,
+  /** son partiyi tetikleyen sebep: time | capacity | total | recipient | exit | withdraw | manual */
+  lastBatchReason: "",
+  reasons: {} as Record<string, number>,
+};
 
 // ================= zincir durumu =================
 
@@ -134,6 +150,7 @@ async function watch() {
   const dirtyPairs: [string, string][] = [];
   let exitSeen = false;
   for (const ev of res.events) {
+    chain.observe(ev.ledger); // bu olaydan sonraki durumu oku
     const who = ev.topics[0] as string | undefined;
     switch (ev.name) {
       case "joined":
@@ -166,12 +183,12 @@ async function watch() {
 // ================= parti =================
 
 /** Kabul sirasinin bir onekini zincire gonderir. Kilit ALTINDA cagir. */
-async function flushOnce(): Promise<boolean> {
+async function flushOnce(reason: string): Promise<boolean> {
   const b = core.cutBatch(MAX_PAIRS);
   if (!b) return false;
   core.markInflight(b);
   const before = await chain.tokenBalance(dep.hub);
-  emit("batch_sent", { uptoSeq: b.uptoSeq, pairs: b.items.length, items: b.items });
+  emit("batch_sent", { uptoSeq: b.uptoSeq, pairs: b.items.length, items: b.items, reason });
   try {
     const res = await chain.invoke(opKp, "settle_batch", [
       A.addr(opKp.publicKey()),
@@ -180,6 +197,8 @@ async function flushOnce(): Promise<boolean> {
     core.batchSettled();
     batchDone();
     stats.batches += 1;
+    stats.lastBatchReason = reason;
+    stats.reasons[reason] = (stats.reasons[reason] ?? 0) + 1;
     stats.lastBatchTx = res.hash;
     const out = scValToNative(res.ret!) as {
       total: bigint; settled: number; stale: number; skipped: string[];
@@ -196,6 +215,7 @@ async function flushOnce(): Promise<boolean> {
     stats.hubToken = after;
     log({ t: "settled", uptoSeq: b.uptoSeq, hash: res.hash });
     emit("batch_settled", {
+      reason,
       uptoSeq: b.uptoSeq,
       hash: res.hash,
       ledger: res.ledger,
@@ -217,12 +237,47 @@ async function flushOnce(): Promise<boolean> {
 }
 
 /** Belirli bir seq'e kadar her seyi uzlastir. */
-function flushUpTo(seq: number) {
+function flushUpTo(seq: number, reason = "manual") {
   return locked(async () => {
     while (core.entries.some((e) => e.seq <= seq)) {
-      if (!(await flushOnce())) break;
+      if (!(await flushOnce(reason))) break;
     }
   });
+}
+
+/**
+ * Tetikleyiciden gelen parti istegi. Art arda gelen istekler kuyrukta TEK
+ * bir partiye birlesir: bir parti bekliyorken yenisi eklenmez.
+ */
+let flushQueued = false;
+function requestFlush(reason: string) {
+  if (flushQueued) return;
+  flushQueued = true;
+  // SADECE istendigi ana kadar kabul edilenler. Parti ucustayken gelen yeni
+  // fisler kendi tetikleyicisini bekler; yoksa yogun trafikte dongu hic durmaz
+  // ve sure tetikleyicisinin maliyet kontrolu anlamsizlasir.
+  const upto = core.seq;
+  void locked(async () => {
+    flushQueued = false;
+    while (core.entries.some((e) => e.seq <= upto)) {
+      if (!(await flushOnce(reason))) break;
+    }
+  });
+}
+
+/** Her kabulden sonra: kapasite ve tutar tetikleyicileri. */
+function checkTriggers() {
+  if (!AUTO_SETTLE) return;
+  const s = core.unsettledSummary();
+  const reason =
+    s.pairs >= MAX_PAIRS ? "capacity"
+    : s.total >= MAX_UNSETTLED ? "total"
+    : s.topRecipientAmount >= MAX_RECIPIENT_UNSETTLED ? "recipient"
+    : null;
+  if (reason) {
+    console.log(`tetik ${reason}: cift ${s.pairs}, toplam ${s.total}, en buyuk alici ${s.topRecipientAmount} (kuyrukta: ${flushQueued})`);
+    requestFlush(reason);
+  }
 }
 
 // ================= kabul =================
@@ -271,7 +326,7 @@ function acceptVoucher(body: {
     delta: r.entry.delta,
     spendableAfter: r.spendableAfter,
   });
-  if (AUTO_SETTLE && core.entries.length >= MAX_PAIRS * 5) void flushUpTo(core.seq);
+  checkTriggers();
   return {
     status: "accepted",
     seq: r.entry.seq,
@@ -303,6 +358,7 @@ function stateView() {
     seq: core.seq,
     unsettled: core.entries.length,
     inflight: core.inflight ? core.inflight.uptoSeq : null,
+    unsettledSummary: core.unsettledSummary(),
     stats,
     participants,
   };
@@ -443,7 +499,7 @@ async function approveWithdraw(body: { who: string; amount: string }) {
         await nextBatch(deadline - Date.now());
       }
     } else {
-      await flushUpTo(core.seq);
+      await flushUpTo(core.seq, "withdraw");
     }
     if (!core.canApprove(who)) {
       core.release(who, amount);
@@ -576,24 +632,43 @@ async function boot() {
   }
   logReady = true;
   for (const a of known) if (!loggedKnown.has(a)) log({ t: "known", a });
-  await locked(watch);
+  // Ilk olay okumasi olumcul degil: izleyici 4 sn'de bir zaten tekrar ediyor.
+  await locked(watch).catch((e) => console.error("ilk olay okumasi:", (e as Error).message));
 
   server.listen(PORT, () => {
     console.log(`golge defter: http://localhost:${PORT}  hub ${dep.hub}`);
-    console.log(`operator: ${opKp.publicKey()}  tur ${ROUND_MS} ms, parti <= ${MAX_PAIRS} cift`);
+    console.log(`operator: ${opKp.publicKey()}`);
+    console.log(
+      AUTO_SETTLE
+        ? `parti: her ${ROUND_MS / 1000} sn | ${MAX_PAIRS} cift | toplam ${Number(MAX_UNSETTLED) / 1e7} | alici basina ${Number(MAX_RECIPIENT_UNSETTLED) / 1e7} (hangisi once)`
+        : "parti: otomatik KAPALI (AUTO_SETTLE=0), sadece /flush, cikis ve cekim",
+    );
   });
 
   // izleyici: her 4 sn
   setInterval(() => {
     void locked(watch)
-      .then((exitSeen) => (exitSeen ? flushUpTo(core.seq) : undefined))
+      .then((exitSeen) => (exitSeen ? flushUpTo(core.seq, "exit") : undefined))
       .catch((e) => console.error("izleyici:", e.message));
   }, 4000);
-  // partici: her tur
-  if (AUTO_SETTLE) setInterval(() => void flushUpTo(core.seq), ROUND_MS);
+  // sure tetikleyicisi
+  if (AUTO_SETTLE) setInterval(() => requestFlush("time"), ROUND_MS);
 }
 
-boot().catch((e) => {
+// Acilis RPC'ye bagli: gecici bir ag hatasi defteri oldurmesin.
+async function bootWithRetry() {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await boot();
+    } catch (e) {
+      if (attempt >= 5) throw e;
+      console.error(`acilis basarisiz (${attempt}/5): ${String((e as Error).message ?? e).slice(0, 120)}, 3 sn sonra tekrar`);
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+}
+
+bootWithRetry().catch((e) => {
   console.error(e);
   process.exit(1);
 });

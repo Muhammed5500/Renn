@@ -135,6 +135,34 @@ export class LedgerCore {
     return { out, in: inn };
   }
 
+  /**
+   * Parti tetikleyicileri icin ozet: uzlasmamis FARKLI cift sayisi (islem
+   * basina sinir cift sayisiyla, fis sayisiyla degil), uzlasmamis toplam
+   * tutar ve en cok bekleyen alacagi olan alici. Ucustaki parti dahil.
+   */
+  unsettledSummary(): { pairs: number; total: bigint; topRecipient: Addr | null; topRecipientAmount: bigint } {
+    let pairs = 0;
+    let total = 0n;
+    const perRecipient = new Map<Addr, bigint>();
+    for (const [key, cum] of this.lastCum) {
+      const d = cum - (this.settledCum.get(key) ?? 0n);
+      if (d <= 0n) continue;
+      pairs += 1;
+      total += d;
+      const r = key.split("|")[1];
+      perRecipient.set(r, (perRecipient.get(r) ?? 0n) + d);
+    }
+    let topRecipient: Addr | null = null;
+    let topRecipientAmount = 0n;
+    for (const [r, a] of perRecipient) {
+      if (a > topRecipientAmount) {
+        topRecipient = r;
+        topRecipientAmount = a;
+      }
+    }
+    return { pairs, total, topRecipient, topRecipientAmount };
+  }
+
   spendable(x: Addr): bigint {
     const p = this.pending(x);
     return this.balance(x) - this.reserved(x) + p.in - p.out;
@@ -280,7 +308,10 @@ export class LedgerCore {
   reconcile(balances: Map<Addr, bigint>, paid: Map<string, bigint>): void {
     if (this.inflight) throw new Error("ucusta parti varken reconcile yok");
     for (const [x, b] of balances) this.balances.set(x, b);
-    for (const [key, p] of paid) this.settledCum.set(key, p);
+    // Zincirdeki paid_between monoton: daha kucuk bir okuma eskidir, yok say.
+    for (const [key, p] of paid) {
+      if (p > (this.settledCum.get(key) ?? 0n)) this.settledCum.set(key, p);
+    }
     this.entries = this.entries.filter(
       (e) => e.cumulative > (this.settledCum.get(pk(e.payer, e.recipient)) ?? 0n),
     );
@@ -352,6 +383,7 @@ export class LedgerCore {
    * acilisinda, zincir durumu yuklendikten SONRA cagir.
    */
   restore(e: Entry): void {
+    if (this.entries.some((x) => x.seq === e.seq)) return; // iki kez yukleme zararsiz
     if (e.seq > this.seq) this.seq = e.seq;
     if (e.cumulative <= this.paid(e.payer, e.recipient)) return;
     this.entries.push(e);
