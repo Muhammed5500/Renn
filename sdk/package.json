@@ -4,20 +4,70 @@
   "description": "Agent and service side: voucher key, x402 batch-settlement scheme (client + seller), vault calls, private entry through SPP.",
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./payload": "./src/payload.ts",
-    "./chain": "./src/chain.ts",
-    "./agent": "./src/agent.ts",
-    "./x402": "./src/x402.ts",
-    "./private": "./src/private.ts",
-    "./spp": "./src/spp.ts"
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./payload": {
+      "types": "./dist/payload.d.ts",
+      "default": "./dist/payload.js"
+    },
+    "./chain": {
+      "types": "./dist/chain.d.ts",
+      "default": "./dist/chain.js"
+    },
+    "./agent": {
+      "types": "./dist/agent.d.ts",
+      "default": "./dist/agent.js"
+    },
+    "./x402": {
+      "types": "./dist/x402.d.ts",
+      "default": "./dist/x402.js"
+    },
+    "./private": {
+      "types": "./dist/private.d.ts",
+      "default": "./dist/private.js"
+    },
+    "./spp": {
+      "types": "./dist/spp.d.ts",
+      "default": "./dist/spp.js"
+    }
   },
   "scripts": {
-    "test": "node --test \"test/*.test.ts\""
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test \"test/*.test.ts\"",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^17.1.0",
     "@x402/core": "^2.26.0"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "files": [
+    "dist",
+    "spp-shim",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Muhammed5500/Renn.git",
+    "directory": "sdk"
+  },
+  "homepage": "https://github.com/Muhammed5500/Renn#readme",
+  "keywords": [
+    "stellar",
+    "soroban",
+    "x402",
+    "agent-payments",
+    "micropayments",
+    "batch-settlement"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "types": "./dist/index.d.ts"
 }

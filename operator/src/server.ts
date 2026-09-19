@@ -431,6 +431,31 @@ function parseX402(b: X402Req): { error: string } | { v: VoucherPayload["voucher
   return { v, amount: BigInt(req.amount) };
 }
 
+/**
+ * Read a payer from the chain before refusing it over money.
+ *
+ * The watcher polls chain events every few seconds and a lagging RPC node can
+ * hand back an older balance, so an agent that joins, deposits and pays right
+ * away would be refused for no good reason. Before answering not_joined or
+ * insufficient_spendable, read that one address again and retry once. At most
+ * one read per address per LOOKUP_GAP.
+ */
+const LOOKUP_GAP = 5000;
+const LOOKUP_REASONS = new Set(["not_joined", "insufficient_spendable"]);
+const lastLookup = new Map<string, number>();
+async function lookup(payer: string): Promise<boolean> {
+  const now = Date.now();
+  if (!payer || now - (lastLookup.get(payer) ?? 0) < LOOKUP_GAP) return false;
+  lastLookup.set(payer, now);
+  try {
+    await locked(() => refresh([payer]));
+    return true;
+  } catch (e) {
+    console.warn(`lookup ${payer.slice(0, 8)}: ${(e as Error).message}`);
+    return false;
+  }
+}
+
 /** /verify: READ-ONLY. Would the voucher be accepted right now? */
 function x402Verify(b: X402Req) {
   const p = parseX402(b);
@@ -445,16 +470,20 @@ function x402Verify(b: X402Req) {
 }
 
 /** /settle: ACCEPTS the voucher into the ledger. Nothing goes on chain now; value moves in a batch. */
-function x402Settle(b: X402Req) {
+async function x402Settle(b: X402Req) {
   const p = parseX402(b);
   if ("error" in p) return { success: false, errorReason: p.error, transaction: "", network: NETWORK };
-  const r = acceptVoucher({
+  const voucher = {
     payer: p.v.payer,
     recipient: p.v.recipient,
     cumulative: p.v.cumulative,
     sig: p.v.signature,
     min_delta: p.amount.toString(),
-  });
+  };
+  let r = acceptVoucher(voucher);
+  if (r.status === "refused" && LOOKUP_REASONS.has(String(r.reason)) && (await lookup(p.v.payer))) {
+    r = acceptVoucher(voucher);
+  }
   if (r.status !== "accepted") {
     return { success: false, errorReason: r.reason, payer: p.v.payer, transaction: "", network: NETWORK };
   }
@@ -587,11 +616,19 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === "GET" && url.pathname === "/state") return send(200, stateView());
     if (req.method === "GET" && url.pathname === "/supported") return send(200, supported());
-    if (req.method === "POST" && url.pathname === "/verify") return send(200, x402Verify(await readBody(req)));
+    if (req.method === "POST" && url.pathname === "/verify") {
+      const b = await readBody(req);
+      const payer = String(b?.paymentPayload?.payload?.voucher?.payer ?? "");
+      let out = x402Verify(b);
+      if (!out.isValid && LOOKUP_REASONS.has(String(out.invalidReason)) && (await lookup(payer))) {
+        out = x402Verify(b);
+      }
+      return send(200, out);
+    }
     if (req.method === "POST" && url.pathname === "/settle") {
       // NOTE: the old demo endpoint was also /settle (empty body = "send a batch now").
       // That is /flush now. This endpoint is the x402 facilitator's settle.
-      return send(200, x402Settle(await readBody(req)));
+      return send(200, await x402Settle(await readBody(req)));
     }
     if (req.method === "GET" && url.pathname.startsWith("/pair/")) {
       const [, , p, r] = url.pathname.split("/");

@@ -8,3 +8,5 @@ restart-snap.json
 spp/bin/
 spp/circuits/*
 !spp/circuits/circuits.json
+sdk/dist/
+*.tgz

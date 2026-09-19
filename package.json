@@ -12,9 +12,14 @@
     "node": ">=23.6"
   },
   "scripts": {
-    "start": "npm run start -w operator",
-    "test": "npm test -w sdk -w operator",
-    "demo": "node demo/demo.ts"
+    "build": "npm run build -w renn",
+    "start": "npm run build -w renn && npm run start -w operator",
+    "test": "npm run build -w renn && npm test -w renn -w operator",
+    "demo": "npm run build -w renn && node demo/demo.ts"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^26.6.2",
+    "typescript": "^7.0.2"
+  }
 }
