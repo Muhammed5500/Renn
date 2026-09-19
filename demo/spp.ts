@@ -1,150 +1,93 @@
-// Resmi SPP CLI'yi (Nethermind stellar-private-payments) cagiran ince sarmalayici.
+// Private entry for the demo and checks. The flow itself is the SDK's
+// privateOnboard(); this file only prepares test wallets (friendbot, test
+// token) and a crowd of depositors.
 //
-// Varsayilan yerler (git'e girmez, kurulum README "Private entry"):
-//   spp/bin/spp[.exe]   SPP CLI (kaynaktan derlendi, 10ffa0e)
-//   spp/circuits/       circuits-v0.4, circuits.json'daki sha256'larla dogrulandi
-// Ortamla degistirilebilir: SPP_BIN, SPP_CIRCUITS.
-//
-// Hesaplar `stellar keys` takma adlari. Relayer'in takma adi `gd-relay`:
-// STELLAR_BIN sdk/spp-shim/'e yonlenir, o da imzayi deftere (relayer) sorar.
+// Default locations (gitignored, setup in README "Private entry"):
+//   spp/bin/spp[.exe]   SPP CLI, built from source (10ffa0e)
+//   spp/circuits/       circuits-v0.4, checked against circuits.json
+// Override with SPP_BIN, SPP_CIRCUITS.
 
-import { execFile, execSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { randomBytes, randomInt } from "node:crypto";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { execSync } from "node:child_process";
+import { randomInt } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { Keypair, StrKey } from "@stellar/stellar-sdk";
-import { LEDGER, chain, mint, asTestAgent, hubCfg, fmt, U } from "./testnet.ts";
-import { A } from "@golge-defter/sdk/chain";
-import { Agent } from "@golge-defter/sdk/agent";
-import { openSponsored, relayedInvoke } from "@golge-defter/sdk/private";
+import { StrKey } from "@stellar/stellar-sdk";
+import { SppCli, privateOnboard, units } from "@golge-defter/sdk";
+import { LEDGER, chain, mint, asTestAgent, U } from "./testnet.ts";
 
 const ROOT = new URL("../", import.meta.url);
 export const sppDep = fileURLToPath(new URL("spp/deployments.json", ROOT));
-const shim = fileURLToPath(new URL(process.platform === "win32" ? "sdk/spp-shim/stellar.cmd" : "sdk/spp-shim/stellar", ROOT));
-const localBin = fileURLToPath(new URL(`spp/bin/spp${process.platform === "win32" ? ".exe" : ""}`, ROOT));
-const localCircuits = fileURLToPath(new URL("spp/circuits", ROOT));
-const BIN = process.env.SPP_BIN ?? (existsSync(localBin) ? localBin : "spp");
-const CIRCUITS = process.env.SPP_CIRCUITS ?? (existsSync(join(localCircuits, "policy_tx_2_2_B.r1cs")) ? localCircuits : undefined);
+const BIN = process.env.SPP_BIN ?? fileURLToPath(new URL(`spp/bin/spp${process.platform === "win32" ? ".exe" : ""}`, ROOT));
+const CIRCUITS = process.env.SPP_CIRCUITS ?? fileURLToPath(new URL("spp/circuits", ROOT));
 
-/** SPP adimlari calisabilir mi (ikili + devre dosyalari). */
-export const sppReady = () => !!CIRCUITS && (BIN === "spp" || existsSync(BIN));
-
-export const RELAY_ALIAS = "gd-relay";
-
-/** Her hesabin kendi SPP cuzdan klasoru (not veritabani, anahtarlar). */
-const dataDirs = new Map<string, string>();
-function dataDir(account: string) {
-  if (!dataDirs.has(account)) dataDirs.set(account, mkdtempSync(join(tmpdir(), `spp-${account}-`)));
-  return dataDirs.get(account)!;
-}
-
-/** Gecici SPP cuzdan klasorlerini sil (notlar ve anahtarlar). */
-export function cleanup() {
-  for (const d of dataDirs.values()) rmSync(d, { recursive: true, force: true });
-  dataDirs.clear();
-}
-
-export function spp(account: string, args: string[], signAs?: string): Promise<string> {
-  if (!CIRCUITS) throw new Error("SPP devre dosyalari yok: spp/circuits/ ya da SPP_CIRCUITS");
-  const full = [
-    "--deployment", sppDep,
-    "--circuits-dir", CIRCUITS,
-    "--data-dir", dataDir(account),
-    "--account", account,
-    ...(signAs ? ["--sign-as", signAs] : []),
-    ...args,
-  ];
-  return new Promise((ok, fail) => {
-    const child = execFile(
-      BIN,
-      full,
-      { env: { ...process.env, STELLAR_BIN: shim, GD_RELAY_URL: LEDGER }, maxBuffer: 16 << 20, timeout: 300_000 },
-      (err, stdout, stderr) => (err ? fail(new Error(`spp ${args[0]}: ${stderr || err.message}`)) : ok(stdout + stderr)),
-    );
-    // onboard'un istegleri (bootnode, explorer) bos girdiyle varsayilani alir
-    child.stdin?.end();
-  });
-}
-
-const txHash = (out: string) => {
-  const m = out.match(/tx_hash\W+([0-9a-f]{64})/);
-  if (!m) throw new Error(`spp ciktisinda tx_hash yok:\n${out.slice(-400)}`);
-  return m[1];
-};
-
-export async function onboard(account: string) {
-  await spp(account, ["onboard", "--accept", "--no-register", "--no-bootnode"]);
-}
-
-/** Genel token'i havuza yatir (W kendisi oder: W zaten bilinen hesap). */
-export async function deposit(account: string, pool: string, amount: string) {
-  return txHash(await spp(account, ["deposit", pool, amount]));
-}
-
-/** Havuzdan `to`'ya cek. Kaynak ve ucret relayer: islemde W yok. */
-export async function withdraw(account: string, pool: string, amount: string, to: string) {
-  return txHash(await spp(account, ["withdraw", pool, amount, "--to", to], RELAY_ALIAS));
-}
-
-// ================= gizli giris akisi =================
+/** SPP binary and circuits present. */
+export const sppReady = () => SppCli.ready(BIN, CIRCUITS);
 
 /**
- * n bilinen cuzdan (W) havuza `amount` yatirir; biri taze F'ye ceker; F
- * relayer ile 0 XLM hesap acar, kasaya katilir ve yatirir. F x402 ile odemeye
- * hazir ajan olarak doner. Test cuzdanlari sonunda silinir.
+ * n known wallets (W) deposit `amount` into the pool; one of them enters the
+ * vault privately as a fresh F. Returns F as an x402-ready test agent.
+ *
+ * oneCall: false (demo): all n deposit first, a random one withdraws with
+ *   privateOnboard({ deposit: false }). F could be any of them.
+ * oneCall: true (check): n-1 deposit, the last wallet does the whole flow with
+ *   a single privateOnboard() call, deposit included.
+ *
+ * Test wallets are removed from `stellar keys` at the end.
  */
-export async function privateEntry(amount = 10n, n = 3, say = (s: string) => console.log(s)) {
-  const pool = JSON.parse(readFileSync(sppDep, "utf8")).pools[0].poolContractId as string;
-  const units = fmt(amount * U).replace(/\.00$/, "");
+export async function privateEntry(amount = 10n, n = 3, say = (s: string) => console.log(s), oneCall = false) {
+  const cli = new SppCli({ bin: BIN, circuits: CIRCUITS, deployment: sppDep, relayUrl: LEDGER });
+  const u = units(amount * U);
   const tag = Date.now().toString(36);
   const ws = Array.from({ length: n }, (_, i) => `gd_w${i + 1}_${tag}`);
   const wAddr: Record<string, string> = {};
   try {
-    say(`  ${n} bilinen cuzdan hazirlaniyor (friendbot, ${units} RTUSD, SPP anahtarlari)`);
+    say(`  ${n} bilinen cuzdan hazirlaniyor (friendbot, ${u} RTUSD, SPP anahtarlari)`);
     for (const w of ws) {
       execSync(`stellar keys generate ${w} --network testnet --fund`, { stdio: "ignore" });
       wAddr[w] = execSync(`stellar keys address ${w}`).toString().trim();
     }
     for (const w of ws) await mint(wAddr[w], amount * U);
-    await Promise.all(ws.map((w) => onboard(w)));
+    await Promise.all(ws.map((w) => cli.onboard(w)));
 
-    // Sirayla: ayni havuza ayni ledger'da iki yatirma, ikisi de ayni agac
-    // durumuna gore hazirlandigi icin biri reddedilir.
-    const deps: string[] = [];
-    for (const [i, w] of ws.entries()) {
-      deps.push(await deposit(w, pool, units));
-      say(`  W${i + 1} ${wAddr[w].slice(0, 8)}… havuza ${units} yatirdi   https://stellar.expert/explorer/testnet/tx/${deps.at(-1)}`);
+    // One at a time: two deposits into the same pool in the same ledger are
+    // built against the same tree state and one of them is rejected.
+    const crowd = oneCall ? ws.slice(0, -1) : ws;
+    const deposits: string[] = [];
+    for (const [i, w] of crowd.entries()) {
+      deposits.push(await cli.deposit(w, amount * U));
+      say(`  W${i + 1} ${wAddr[w].slice(0, 8)}… havuza ${u} yatirdi   https://stellar.expert/explorer/testnet/tx/${deposits.at(-1)}`);
     }
 
-    const chosen = ws[randomInt(n)];
-    const f = Keypair.random();
-    const wd = await withdraw(chosen, pool, units, f.publicKey());
-    say(`  havuzdan taze F'ye ${units}: ${f.publicKey().slice(0, 8)}…   https://stellar.expert/explorer/testnet/tx/${wd}`);
-    if ((await chain.tokenBalance(f.publicKey())) !== amount * U) throw new Error("F havuzdan parayi almadi");
-
-    const agent = new Agent({ address: f.publicKey(), seedHex: randomBytes(32).toString("hex"), ledgerUrl: LEDGER, hub: hubCfg });
-    const opened = await openSponsored(LEDGER, f, chain);
-    const joined = await relayedInvoke(LEDGER, f, chain, "join", [A.addr(f.publicKey()), A.bytes(agent.commitmentKey)]);
-    const deposited = await relayedInvoke(LEDGER, f, chain, "deposit", [A.addr(f.publicKey()), A.i128(amount * U)]);
-    say(`  F 0 XLM ile hesap acti, kasaya katildi, ${units} yatirdi (ucretler relayer'dan)`);
+    const chosen = oneCall ? ws[n - 1] : ws[randomInt(n)];
+    const r = await privateOnboard({
+      spp: cli,
+      wallet: chosen,
+      amount: amount * U,
+      chain,
+      ledgerUrl: LEDGER,
+      deposit: oneCall,
+    });
+    if (r.txs.sppDeposit) {
+      deposits.push(r.txs.sppDeposit);
+      say(`  W${n} ${wAddr[chosen].slice(0, 8)}… havuza ${u} yatirdi   https://stellar.expert/explorer/testnet/tx/${r.txs.sppDeposit}`);
+    }
+    say(`  havuzdan taze F'ye ${u}: ${r.address.slice(0, 8)}…   https://stellar.expert/explorer/testnet/tx/${r.txs.sppWithdraw}`);
+    say(`  F 0 XLM ile hesap acti, kasaya katildi, ${u} yatirdi (ucretler relayer'dan)`);
 
     return {
-      f: asTestAgent("F", f, agent),
-      pool,
+      f: asTestAgent("F", r.keypair, r.agent),
+      pool: cli.pool,
       ws: ws.map((w) => wAddr[w]),
       chosen: wAddr[chosen],
-      deposits: deps,
-      txs: { cekim: wd, "hesap ac": opened.hash, join: joined.hash, deposit: deposited.hash },
+      deposits,
+      txs: { cekim: r.txs.sppWithdraw, "hesap ac": r.txs.openAccount, join: r.txs.join, deposit: r.txs.deposit },
     };
   } finally {
     for (const w of ws) execSync(`stellar keys rm --force ${w}`, { stdio: "ignore" });
-    cleanup();
+    cli.cleanup();
   }
 }
 
-/** Islem zarfi + sonuc baytlarinda bu adreslerden hangileri geciyor. */
+/** Which of these addresses appear in a transaction's envelope and result bytes. */
 export async function addressesIn(hash: string, addrs: string[]) {
   const t = (await fetch(`https://horizon-testnet.stellar.org/transactions/${hash}`).then((r) => r.json())) as any;
   const raw = Buffer.concat([Buffer.from(t.envelope_xdr, "base64"), Buffer.from(t.result_meta_xdr ?? "", "base64")]);

@@ -24,9 +24,9 @@ const must = (c: boolean, m: string) => {
 const relay = (await fetch(`${LEDGER}/relay/info`).then((r) => r.json())) as { address: string };
 must(!!relay.address, "defterde relayer kapali (RELAYER_SECRET)");
 
-console.log("1) gizli giris: W1, W2, W3 -> SPP havuzu -> F -> kasa");
+console.log("1) gizli giris: W1, W2 havuza yatirir; W3 tek privateOnboard() cagrisiyla W3 -> havuz -> F -> kasa");
 const t0 = Date.now();
-const pe = await privateEntry(10n, 3);
+const pe = await privateEntry(10n, 3, undefined, true); // W3: tek privateOnboard() cagrisi, yatirma dahil
 const f = pe.f;
 console.log(`   ${Math.round((Date.now() - t0) / 1000)} sn`);
 

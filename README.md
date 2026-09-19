@@ -94,6 +94,19 @@ W (known wallet) --deposit--> SPP pool --withdraw--> F (fresh address) --join, d
   - `POST /relay/fee-bump` pays for F's own `join` and `deposit`.
 - **The relayer signs three shapes only:** an SPP withdrawal (negative amount) with itself as source and sender, a sponsorship for a new account, and a vault `join`/`deposit` by the transaction's own source. None of them moves anyone's tokens, including its own. `check-private.ts` submits nine other shapes, and the relayer refuses all of them.
 
+From the SDK it is one call:
+
+```ts
+import { SppCli, privateOnboard, Chain, TESTNET } from "@golge-defter/sdk";
+
+const chain = new Chain({ ...TESTNET, hub: VAULT, token: TOKEN }, ANY_FUNDED_ACCOUNT);   // reads simulate from this account
+const spp = new SppCli({ bin: "spp", circuits: "./circuits", deployment: "spp/deployments.json", relayUrl: LEDGER });
+const f = await privateOnboard({ spp, wallet: "my-wallet", amount: 100_000_000n /* 10 tokens */, chain, ledgerUrl: LEDGER });
+// f.agent pays over x402 like any agent. Store f.secret and f.seedHex.
+```
+
+`wallet` is a `stellar keys` alias. With `deposit: false` the wallet's earlier deposit is used, which is better: time between deposit and withdrawal is what hides the link.
+
 `demo/check-private.ts` on testnet: three wallets deposit 10 each, and one of them withdraws to F. A byte scan of the withdrawal and of F's three transactions finds none of the three wallets. F has 0 XLM, its sponsor is the relayer, and it pays over x402 like any other agent.
 
 What this hides and what it doesn't:
@@ -141,7 +154,8 @@ sdk/                   @golge-defter/sdk: what agents and services use
   src/x402.ts            x402 scheme: BatchSettlementStellarClient (payer), BatchSettlementStellarServer (seller)
   src/payload.ts         the three signed payloads, byte-identical to the contract
   src/chain.ts           vault calls and reads over Soroban RPC
-  src/private.ts         private entry, agent side: sponsored account, fee-bumped join/deposit
+  src/private.ts         private entry: privateOnboard() in one call, sponsored account, fee-bumped join/deposit
+  src/spp.ts             SppCli: the official SPP CLI (deposit, withdraw through the relayer)
   spp-shim/              `stellar` stand-in so the official SPP CLI can use the remote relayer
 
 operator/              the ledger: only the operator runs this
