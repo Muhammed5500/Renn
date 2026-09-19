@@ -67,6 +67,18 @@ export class Chain {
   server: rpc.Server;
   /** okuma simulasyonlari icin var olan herhangi bir hesap */
   reader: string;
+  /**
+   * MONOTON OKUMA TABANI. Testnet RPC birden fazla dugum; geride kalan bir
+   * dugum, gordugumuz bir partiden ya da cekimden ONCEKI bakiyeyi dondurebilir.
+   * Defter o eski bakiyeyle bir odeyenin parasini oldugundan fazla sanir.
+   * observe(L) ile taban yukselir; tabandan eski durum okuyan simulasyon
+   * reddedilir ve tekrar denenir.
+   */
+  floor = 0;
+
+  observe(ledger: number) {
+    if (ledger > this.floor) this.floor = ledger;
+  }
 
   constructor(cfg: ChainCfg, reader: string) {
     this.cfg = cfg;
@@ -81,12 +93,21 @@ export class Chain {
   /** Kasa kontratinda salt okuma. Islem gondermez. */
   async read(method: string, args: xdr.ScVal[], contract = this.cfg.hub): Promise<xdr.ScVal> {
     // Ag hatasinda iki kez daha dene. Simulasyon hatasi (kontrat hatasi) denenmez.
-    for (let attempt = 0; ; attempt++) {
+    // Geride kalan dugum: 10 kez, saniyede bir dene (ledger ~5 sn).
+    let net = 0;
+    for (let lag = 0; ; ) {
       try {
         return await this.readOnce(method, args, contract);
       } catch (e) {
-        if (attempt >= 2 || String(e).includes("simulasyonu basarisiz")) throw e;
-        await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        const msg = String(e);
+        if (msg.includes("simulasyonu basarisiz")) throw e;
+        if (msg.includes("RPC geride")) {
+          if (++lag > 10) throw e;
+          await new Promise((r) => setTimeout(r, 1000));
+          continue;
+        }
+        if (++net > 2) throw e;
+        await new Promise((r) => setTimeout(r, 500 * net));
       }
     }
   }
@@ -100,6 +121,9 @@ export class Chain {
     const sim = await this.server.simulateTransaction(tx);
     if (!rpc.Api.isSimulationSuccess(sim)) {
       throw new Error(`${method} simulasyonu basarisiz: ${(sim as { error?: string }).error}`);
+    }
+    if (sim.latestLedger < this.floor) {
+      throw new Error(`RPC geride: ${sim.latestLedger} < ${this.floor}`);
     }
     return sim.result!.retval;
   }
@@ -133,6 +157,7 @@ export class Chain {
       await new Promise((r) => setTimeout(r, 1000));
       const res = await this.server.getTransaction(sent.hash);
       if (res.status === rpc.Api.GetTransactionStatus.SUCCESS) {
+        this.observe(res.ledger);
         return { hash: sent.hash, ret: res.returnValue, ledger: res.ledger };
       }
       if (res.status === rpc.Api.GetTransactionStatus.FAILED) {
