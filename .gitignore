@@ -2,6 +2,6 @@ target/
 node_modules/
 .env
 *.wasm
-ledger/ledger.log
+ledger/*.log
 ledger/restart-snap.json
 **/test_snapshots/
