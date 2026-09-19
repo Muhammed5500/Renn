@@ -1,0 +1,15 @@
+{
+  "name": "golge-defter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Golge defter (operator): fisleri kabul eder, siralar, imzalar, partileri zincire gonderir.",
+  "engines": { "node": ">=23.6" },
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\"",
+    "start": "node src/server.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^17.1.0"
+  }
+}
