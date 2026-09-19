@@ -170,7 +170,7 @@ spp/deployments.json   our SPP pool (RTUSD), in the SPP CLI's deployment format
 docs/                  x402 scheme binding spec
 ```
 
-Contract addresses are in `deployments.json`. Vault: [`CDDO6GAL...X3OK2`](https://stellar.expert/explorer/testnet/contract/CDDO6GALOUQE5X7HHM6KHCU7D27M377IKOU4RC4PLSJFJRLOJDMX3OK2).
+Contract addresses are in `deployments.json`. Vault: [`CA73IV5D...I76IGJ`](https://stellar.expert/explorer/testnet/contract/CA73IV5DC37ERBOQ4UIB7L7D67TFPC5JABZJT45FDDMXNPLFAFI76IGJ). Earlier vaults are kept under `legacy_hubs`.
 
 ## Run it
 

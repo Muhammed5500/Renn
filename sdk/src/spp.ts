@@ -65,6 +65,28 @@ export class SppCli {
     this.dirs.clear();
   }
 
+  /**
+   * Run the CLI, retrying transient failures.
+   *
+   * A retry is only safe while nothing has been signed and sent yet, so the
+   * output is checked for a submitted transaction first. The indexer's RPC
+   * sync is the step that fails now and then, and it runs before signing.
+   */
+  async runRetrying(account: string, args: string[], signAs?: string, tries = 3): Promise<string> {
+    for (let i = 1; ; i++) {
+      try {
+        return await this.run(account, args, signAs);
+      } catch (e) {
+        const msg = String(e);
+        const sent = /transaction_submitted|tx_hash/.test(msg);
+        if (sent || i >= tries) throw e;
+        const last = msg.trim().split(/\r?\n/).pop() ?? msg;
+        console.warn(`spp ${args[0]}: ${last.slice(0, 80)} - retry ${i}/${tries - 1}`);
+        await new Promise((r) => setTimeout(r, 3000));
+      }
+    }
+  }
+
   run(account: string, args: string[], signAs?: string): Promise<string> {
     const full = [
       "--deployment", this.cfg.deployment,
@@ -94,16 +116,16 @@ export class SppCli {
 
   /** Accept the disclaimer and derive the account's privacy keys (local, no transaction). */
   async onboard(account: string) {
-    await this.run(account, ["onboard", "--accept", "--no-register", "--no-bootnode"]);
+    await this.runRetrying(account, ["onboard", "--accept", "--no-register", "--no-bootnode"]);
   }
 
   /** Deposit public tokens into the pool. The wallet pays its own fee: it is public anyway. */
   async deposit(account: string, amount: bigint) {
-    return SppCli.txHash(await this.run(account, ["deposit", this.pool, units(amount)]));
+    return SppCli.txHash(await this.runRetrying(account, ["deposit", this.pool, units(amount)]));
   }
 
   /** Withdraw to `to`. Source and fee payer is the relayer, so the wallet does not appear. */
   async withdraw(account: string, amount: bigint, to: string) {
-    return SppCli.txHash(await this.run(account, ["withdraw", this.pool, units(amount), "--to", to], RELAY_ALIAS));
+    return SppCli.txHash(await this.runRetrying(account, ["withdraw", this.pool, units(amount), "--to", to], RELAY_ALIAS));
   }
 }

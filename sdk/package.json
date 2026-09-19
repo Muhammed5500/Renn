@@ -18,5 +18,6 @@
   "dependencies": {
     "@stellar/stellar-sdk": "^17.1.0",
     "@x402/core": "^2.26.0"
-  }
+  },
+  "license": "MIT"
 }

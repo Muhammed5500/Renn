@@ -15,5 +15,6 @@
     "start": "npm run start -w operator",
     "test": "npm test -w sdk -w operator",
     "demo": "node demo/demo.ts"
-  }
+  },
+  "license": "MIT"
 }

@@ -11,5 +11,6 @@
   "dependencies": {
     "renn": "0.1.0",
     "@stellar/stellar-sdk": "^17.1.0"
-  }
+  },
+  "license": "MIT"
 }
