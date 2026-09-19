@@ -4,7 +4,7 @@
 // parametre olarak gelir. Ayni girdiye her zaman ayni
 // cevap. Bu dosya ileride ZK devresinin sartnamesi olacak (plan par.11).
 //
-// Plan: Son 2 Plan/PLAN-golge-defter.md par.3.
+// Plan: PLAN-golge-defter.md (repo disinda, Proje/'nin bir ustunde) par.3.
 //
 // TEK KURAL (plan par.3.1):
 //

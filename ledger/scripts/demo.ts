@@ -3,7 +3,7 @@
 // Defter calisirken:   AUTO_SETTLE=0 npm start
 // Sonra:               node scripts/demo.ts            (butun sahneler)
 //                      node scripts/demo.ts 1 3        (sadece 1 ve 3)
-// Sahne 6 (gizli giris) SPP ister: SPP_BIN, SPP_CIRCUITS ve .env'de RELAYER_SECRET.
+// Sahne 6 (gizli giris) SPP ister: spp/bin, spp/circuits ve .env'de RELAYER_SECRET.
 // Yoksa atlanir. ~3 dk surer (uc Groth16 yatirma + cekim).
 //
 // Her sayi calisan sistemden geliyor: defterin /state'i ve zincir okumalari.
@@ -11,7 +11,7 @@
 import { Keypair } from "@stellar/stellar-sdk";
 import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, LEDGER, U, pay } from "./testnet.ts";
 import { A, voucherScVal } from "../src/chain.ts";
-import { privateEntry, addressesIn } from "./spp.ts";
+import { privateEntry, addressesIn, sppReady } from "./spp.ts";
 
 const only = process.argv.slice(2).map(Number);
 const want = (n: number) => only.length === 0 || only.includes(n);
@@ -156,8 +156,8 @@ if (want(5)) {
 // ================= SAHNE 6 (SPP varsa) =================
 if (want(6)) {
   scene(6, "GIZLI GIRIS", "Kasaya kim girdi, zincirden bilinmiyor.");
-  if (!process.env.SPP_CIRCUITS) {
-    console.log("  SPP_CIRCUITS ayarli degil, atlandi.");
+  if (!sppReady()) {
+    console.log("  SPP CLI ya da devre dosyalari yok (spp/bin, spp/circuits), atlandi.");
   } else {
     const pe = await privateEntry(10n, 3, (s) => console.log(s));
     await track([pe.f.address], { [pe.f.address]: "F (gizli)" });

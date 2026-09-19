@@ -1,17 +1,15 @@
 // Resmi SPP CLI'yi (Nethermind stellar-private-payments) cagiran ince sarmalayici.
 //
-// Kurulum (bir kez):
-//   cargo install --git https://github.com/NethermindEth/stellar-private-payments stellar-private-payments-cli
-//   devre dosyalari: SPP surumunun circuits-v0.4 paketi, bkz. README "Private entry"
-// Ortam:
-//   SPP_BIN       spp ikilisi (varsayilan: PATH'teki `spp`)
-//   SPP_CIRCUITS  devre dosyalari klasoru (zorunlu)
+// Varsayilan yerler (git'e girmez, kurulum README "Private entry"):
+//   spp/bin/spp[.exe]   SPP CLI (kaynaktan derlendi, 10ffa0e)
+//   spp/circuits/       circuits-v0.4, circuits.json'daki sha256'larla dogrulandi
+// Ortamla degistirilebilir: SPP_BIN, SPP_CIRCUITS.
 //
 // Hesaplar `stellar keys` takma adlari. Relayer'in takma adi `gd-relay`:
 // STELLAR_BIN spp-shim/'e yonlenir, o da imzayi deftere (relayer) sorar.
 
 import { execFile, execSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { randomBytes, randomInt } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,8 +23,13 @@ import { openSponsored, relayedInvoke } from "../src/private.ts";
 const ROOT = new URL("../../", import.meta.url);
 export const sppDep = fileURLToPath(new URL("spp/deployments.json", ROOT));
 const shim = fileURLToPath(new URL(process.platform === "win32" ? "../spp-shim/stellar.cmd" : "../spp-shim/stellar", import.meta.url));
-const BIN = process.env.SPP_BIN ?? "spp";
-const CIRCUITS = process.env.SPP_CIRCUITS;
+const localBin = fileURLToPath(new URL(`spp/bin/spp${process.platform === "win32" ? ".exe" : ""}`, ROOT));
+const localCircuits = fileURLToPath(new URL("spp/circuits", ROOT));
+const BIN = process.env.SPP_BIN ?? (existsSync(localBin) ? localBin : "spp");
+const CIRCUITS = process.env.SPP_CIRCUITS ?? (existsSync(join(localCircuits, "policy_tx_2_2_B.r1cs")) ? localCircuits : undefined);
+
+/** SPP adimlari calisabilir mi (ikili + devre dosyalari). */
+export const sppReady = () => !!CIRCUITS && (BIN === "spp" || existsSync(BIN));
 
 export const RELAY_ALIAS = "gd-relay";
 
@@ -44,7 +47,7 @@ export function cleanup() {
 }
 
 export function spp(account: string, args: string[], signAs?: string): Promise<string> {
-  if (!CIRCUITS) throw new Error("SPP_CIRCUITS ayarli degil (devre dosyalari klasoru)");
+  if (!CIRCUITS) throw new Error("SPP devre dosyalari yok: spp/circuits/ ya da SPP_CIRCUITS");
   const full = [
     "--deployment", sppDep,
     "--circuits-dir", CIRCUITS,

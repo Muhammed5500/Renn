@@ -1,6 +1,6 @@
 # Bilinçli sadeleştirmeler ve bilinen sınırlar
 
-Plan: `Son 2 Plan/PLAN-golge-defter.md` v3.3, §10.
+Plan: `../PLAN-golge-defter.md` (repo dışında) v3.3, §10.
 
 ## Kapsam dışı bırakılanlar
 

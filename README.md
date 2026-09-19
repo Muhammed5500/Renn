@@ -164,13 +164,13 @@ node scripts/check-x402.ts      # x402 v2 wire-format and refusal checks
 
 The demo scripts mint test tokens with the `deployer` identity of the Stellar CLI.
 
-Private entry (scene 6, `check-private.ts`) also needs the SPP CLI and its circuits:
+Private entry (scene 6, `check-private.ts`) also needs the SPP CLI in `spp/bin/` and its circuits in `spp/circuits/` (both gitignored; `SPP_BIN` / `SPP_CIRCUITS` override):
 
 ```bash
 git clone https://github.com/NethermindEth/stellar-private-payments && cd stellar-private-payments
-cargo build --release -p stellar-private-payments-cli     # target/release/spp (tested at 10ffa0e)
-# circuits: the circuits-v0.4 release tarball of the SPP repo, checked against deployments/testnet/circuits.json
-export SPP_BIN=/path/to/spp SPP_CIRCUITS=/path/to/circuits
+cargo build --release -p stellar-private-payments-cli     # copy target/release/spp to spp/bin/ (tested at 10ffa0e)
+# circuits: the circuits-v0.4 release tarball of the SPP repo, unpacked into spp/circuits/;
+# spp/circuits/circuits.json holds the sha256 of each file
 node scripts/check-private.ts
 ```
 

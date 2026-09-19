@@ -12,7 +12,7 @@
 //   POST /verify            x402 facilitator: fis kabul edilir mi (salt okunur)
 //   POST /settle            x402 facilitator: fisi defterde kabul et
 //
-// Plan: Son 2 Plan/PLAN-golge-defter.md par.3 ve ADIM D3-D4.
+// Plan: PLAN-golge-defter.md (repo disinda, Proje/'nin bir ustunde) par.3 ve ADIM D3-D4.
 
 import http from "node:http";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";

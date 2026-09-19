@@ -1,5 +1,5 @@
 // Gizli giris (SPP), testnet'te. Defter RELAYER_SECRET ile calisirken:
-//   SPP_BIN=... SPP_CIRCUITS=... node scripts/check-private.ts
+//   node scripts/check-private.ts        (SPP CLI ve devreler spp/ altinda, bkz. spp.ts)
 //
 // Zincirde bilinen uc cuzdan (W1, W2, W3) SPP havuzuna 10'ar yatirir. Biri
 // havuzdan taze bir F'ye 10 ceker. F relayer sayesinde 0 XLM ile hesap acar,

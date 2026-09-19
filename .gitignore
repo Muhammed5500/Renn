@@ -5,3 +5,6 @@ node_modules/
 ledger/*.log
 ledger/restart-snap.json
 **/test_snapshots/
+spp/bin/
+spp/circuits/*
+!spp/circuits/circuits.json
