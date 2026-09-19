@@ -31,13 +31,13 @@ spendable(x) = on-chain balance - reserved withdrawals + unsettled incoming - un
 
 | Scene | What happens | Result |
 |---|---|---|
-| 1. Circular debt | A holds 20. A→B 100, B→C 90, C→A 80 in small alternating payments | 270 payments, **1 transaction**, vault token balance unchanged. [tx](https://stellar.expert/explorer/testnet/tx/f24e5224c6d0cbcdb88e714ac904dd9c7d0a63f257a71bb5fdc0130da9d62646) |
-| 2. Scale | 5 payers, 25 services, 600 payments | 600 payments in 1.6 s (≈378/s), **1 transaction**. [tx](https://stellar.expert/explorer/testnet/tx/dffd197748d596b44b1eed5735b654a6c91dce8fbc026758d6a2baf92d1e0574) |
+| 1. Circular debt | A holds 20. A→B 100, B→C 90, C→A 80 in small alternating payments | 270 payments, **1 transaction**, vault token balance unchanged. [tx](https://stellar.expert/explorer/testnet/tx/2c200bd0a12907b81c168ead50a4a5983d8efeaffdd319463e1d28d6b128badb) |
+| 2. Scale | 5 payers, 25 services, 600 payments | 600 payments accepted in 1.6-4 s over local HTTP, **1 transaction**. [tx](https://stellar.expert/explorer/testnet/tx/b9b67f786308758ce03f688a48ad5b5f4c5e87cdb3f763b99c648861e9071a31) |
 | 3. Bounced cheque | Empty payer tries to pay. A payer tries to promise the same 10 twice | Both refused instantly: `insufficient_spendable` |
-| 4. Scope and withdrawal | A misled agent tries to pay 40 with a per-round cap of 5. Then its owner withdraws 20 | `over_round_cap`, the payment never happened. Withdrawal in ~12 s, no exit delay. [tx](https://stellar.expert/explorer/testnet/tx/cf27dcac7430dbc51da9de896faa6ac0586fbba7c7b85470afe16d9158a8a91c) |
-| 5. Operator down | A recipient settles its own accepted voucher without the ledger. A payer starts the escape hatch | [settle_one](https://stellar.expert/explorer/testnet/tx/dc363dd167d15fd82df905ee02d137f202881f9ba13f1b4834f6aa108823c99f), [exit_start](https://stellar.expert/explorer/testnet/tx/073e569a91008bbe4acf41b836629968cafd0495057ec6e148e8b33edffdcb6f) |
+| 4. Withdrawal | An agent with 50 pays 3, then withdraws 20 | The ledger settles the pending voucher and approves. Tokens in the wallet in ~15 s, no exit delay. [tx](https://stellar.expert/explorer/testnet/tx/172626940be8488a09a4e7e8895424dcfd3b394dff8dcd774f82e922cf42689d) |
+| 5. Operator down | A recipient settles its own accepted voucher without the ledger. A payer starts the escape hatch | [settle_one](https://stellar.expert/explorer/testnet/tx/bde1f1dadc08c4ff4a5d27204b450b7c4ef577b9efe16f2009b437e048ae4814), [exit_start](https://stellar.expert/explorer/testnet/tx/0d1ee7595d0a267b0764fdc0856113080227dd1092509467a9961cccd2e0d725) |
 
-HTTP example (`ledger/examples/two-agents.ts`): an agent calls a weather API ten times with a plain `fetch`, each call paid by voucher, zero on-chain transactions. The service never created an account and never signed anything. It was paid by a permissionless `payout` after one batch. [batch](https://stellar.expert/explorer/testnet/tx/3cc23911f2a3bd71627277aa35072b4af697db661324f4408972a0f520d1d99f)
+HTTP example (`ledger/examples/two-agents.ts`): an agent calls a weather API ten times with a plain `fetch`, each call paid by voucher, zero on-chain transactions. The service never created an account and never signed anything. It was paid by a permissionless `payout` after one batch. [batch](https://stellar.expert/explorer/testnet/tx/0c4b0b392b75bb665521e21e2dfb72c33796dc597821557a2c8196693f08b5b8)
 
 ## Integration is one line on each side
 
@@ -59,6 +59,8 @@ The 402 response follows x402's `accepts` shape with a new scheme, `tab-v1`. The
 | Refuse to approve a withdrawal | Take anyone's money. Withdrawals need the owner's signature and go to the owner's address |
 | Go offline | Lock funds. `exit_start` works without the operator |
 | Accept an unbacked voucher through a bug. The recipient bears that loss | Claw back money a recipient has received |
+
+Agent safety (a compromised or misled agent spending what it legitimately holds) is the wallet's job, not the payment rail's. The rail guarantees that nobody spends money they don't have.
 
 **The operator can't touch your money. The worst it can do is stop, and then you withdraw yourself.**
 
@@ -83,18 +85,18 @@ ledger/ui/index.html   live dashboard served by the ledger (GET /), fed by /feed
 ledger/scripts         demo.ts, e2e.ts, limits.ts
 ```
 
-Contract addresses are in `deployments.json`. Vault: [`CANRTUBN...BUCQ4M`](https://stellar.expert/explorer/testnet/contract/CANRTUBNHRLKQPLYYEFQ4CP673JSUBIDDLGRJJLKV4HGFLNG7FBUCQ4M).
+Contract addresses are in `deployments.json`. Vault: [`CDDO6GAL...X3OK2`](https://stellar.expert/explorer/testnet/contract/CDDO6GALOUQE5X7HHM6KHCU7D27M377IKOU4RC4PLSJFJRLOJDMX3OK2).
 
 ## Run it
 
 Requirements: Rust with `wasm32v1-none`, `stellar` CLI 25.2+, Node 23.6+.
 
 ```bash
-cargo test                      # 81 contract tests + 5 token tests
+cargo test                      # 76 contract tests + 5 token tests
 stellar contract build
 
 cd ledger && npm install
-npm test                        # 25 ledger tests, including the prefix property
+npm test                        # 22 ledger tests, including the prefix property
 AUTO_SETTLE=0 npm start         # ledger on :8787 (needs ../.env with OPERATOR_SEED)
 node scripts/demo.ts            # scenes 0-5 on testnet
 # live dashboard: http://localhost:8787

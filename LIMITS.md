@@ -1,6 +1,7 @@
 # Ölçülmüş sınırlar (ADIM L)
 
-19 Eylül 2026, Stellar testnet (Protocol 28), kasa `CANRTUBN...BUCQ4M`.
+19 Eylül 2026, Stellar testnet (Protocol 28), kasa `CANRTUBN...BUCQ4M` (v3.3).
+v3.3.1'de sadece kapsam kaldırıldı; uzlaşma kodu aynı, ölçümler geçerli.
 Ölçüm: `ledger/scripts/limits.ts`. `settle_batch` simülasyonu, her fişte iki
 `ed25519_verify` (ödeyen + operatör). Simülasyon deterministik.
 
