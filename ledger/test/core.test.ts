@@ -1,29 +1,17 @@
 // ADIM D2 kabul kriterleri. Ag yok, saniyeler icinde biter.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LedgerCore, type Scope, type VoucherIn, type Ctx, type BatchItem } from "../src/core.ts";
+import { LedgerCore, type VoucherIn, type Ctx, type BatchItem } from "../src/core.ts";
 
 const U = 10_000_000n; // 1 birim, 7 ondalik
 
-const ctx = (over: Partial<Ctx> = {}): Ctx => ({
-  ledger: 1000,
-  round: 1,
-  verifySig: (v) => v.sig === "ok",
-  ...over,
-});
+const ctx = (): Ctx => ({ verifySig: (v) => v.sig === "ok" });
 
-const open = (maxPerRound = 1_000_000n * U): Scope => ({
-  limits: new Map(),
-  maxPerRound,
-  expiresLedger: 1_000_000,
-});
-
-/** Kayitli, kapsamli, bakiyeli katilimcilar. */
+/** Kayitli, bakiyeli katilimcilar. */
 function world(balances: Record<string, bigint>): LedgerCore {
   const l = new LedgerCore();
   for (const [x, b] of Object.entries(balances)) {
     l.setSigner(x, `pub-${x}`);
-    l.setScope(x, open());
     if (b > 0n) l.deposited(x, b);
   }
   return l;
@@ -107,33 +95,7 @@ test("sahne_1_ters_sira: once 100 odemeye kalkarsa ret, dogru olan bu", () => {
   assert.equal(reason(pay(l, "A", "B", 100n * U)), "insufficient_spendable");
 });
 
-// ================= kapsam =================
-
-test("izin_listesi ve alici_tavani", () => {
-  const l = world({ A: 100n * U, B: 0n, C: 0n });
-  l.setScope("A", { limits: new Map([["B", 50n * U]]), maxPerRound: 1000n * U, expiresLedger: 5000 });
-  assert.equal(reason(pay(l, "A", "C", U)), "not_allowlisted");
-  assert.equal(reason(pay(l, "A", "B", 50n * U)), "accepted");
-  assert.equal(reason(pay(l, "A", "B", 1n)), "over_recipient_cap", "tavan kumulatif");
-});
-
-test("tur_tavani: tur icinde toplam, tur degisince sifirlanir", () => {
-  const l = world({ A: 100n * U, B: 0n, C: 0n });
-  l.setScope("A", open(5n * U));
-  assert.equal(reason(pay(l, "A", "B", 3n * U)), "accepted");
-  assert.equal(reason(pay(l, "A", "C", 3n * U)), "over_round_cap", "B+C toplami 6 > 5");
-  assert.equal(reason(pay(l, "A", "C", 2n * U)), "accepted");
-  assert.equal(reason(pay(l, "A", "B", 40n * U, ctx({ round: 2 }))), "over_round_cap", "Sahne 4");
-  assert.equal(reason(pay(l, "A", "B", 5n * U, ctx({ round: 2 }))), "accepted");
-});
-
-test("kapsam_suresi ve kapsamsiz_ret", () => {
-  const l = world({ A: 100n * U, B: 0n });
-  l.setScope("A", { ...open(), expiresLedger: 999 });
-  assert.equal(reason(pay(l, "A", "B", U)), "scope_expired");
-  l.scopes.delete("A");
-  assert.equal(reason(pay(l, "A", "B", U)), "no_scope");
-});
+// ================= diger retler =================
 
 test("kayitsiz, kendine ve imzasi bozuk fis", () => {
   const l = world({ A: 100n * U });

@@ -11,7 +11,6 @@ import {
   scValToNative,
   xdr,
 } from "@stellar/stellar-sdk";
-import type { Scope } from "./core.ts";
 
 export type ChainCfg = {
   rpcUrl: string;
@@ -56,32 +55,8 @@ export function voucherScVal(v: VoucherArg): xdr.ScVal {
   ]);
 }
 
-export function scopeScVal(s: Scope): xdr.ScVal {
-  // Map<Address, i128>: anahtarlar ScVal sirasina gore dizilmeli.
-  const entries = [...s.limits.entries()]
-    .map(([a, cap]) => ({ key: addr(a), val: i128(cap) }))
-    .sort((x, y) => Buffer.compare(Buffer.from(x.key.toXDR()), Buffer.from(y.key.toXDR())));
-  return struct([
-    ["limits", xdr.ScVal.scvMap(entries.map((e) => new xdr.ScMapEntry(e)))],
-    ["max_per_round", i128(s.maxPerRound)],
-    ["expires_ledger", nativeToScVal(s.expiresLedger, { type: "u32" })],
-  ]);
-}
-
-/** stellar-sdk 17'de XDR nesnelerinin okuma arayuzu degisti (.switch() yok).
- *  Okumalar scValToNative ile yapiliyor. */
-export function parseScope(v: xdr.ScVal): Scope | null {
-  const n = scValToNative(v) as
-    | { limits: Record<string, bigint>; max_per_round: bigint; expires_ledger: number }
-    | null
-    | undefined;
-  if (!n) return null;
-  return {
-    limits: new Map(Object.entries(n.limits).map(([a, c]) => [a, BigInt(c)])),
-    maxPerRound: BigInt(n.max_per_round),
-    expiresLedger: Number(n.expires_ledger),
-  };
-}
+// stellar-sdk 17'de XDR nesnelerinin okuma arayuzu degisti (.switch() yok):
+// okumalar scValToNative ile yapiliyor.
 
 export const A = { sym, addr, i128, bytes, u32: (n: number) => nativeToScVal(n, { type: "u32" }), u64: (n: bigint) => nativeToScVal(n, { type: "u64" }) };
 
@@ -172,10 +147,6 @@ export class Chain {
   async signerOf(who: string): Promise<string | null> {
     const v = scValToNative(await this.read("signer_of", [addr(who)])) as Uint8Array | null | undefined;
     return v ? Buffer.from(v).toString("hex") : null;
-  }
-
-  async scopeOf(who: string): Promise<Scope | null> {
-    return parseScope(await this.read("scope_of", [addr(who)]));
   }
 
   async exitAtOf(who: string): Promise<number | null> {

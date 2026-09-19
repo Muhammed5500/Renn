@@ -15,7 +15,7 @@
 import http from "node:http";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { scValToNative, xdr } from "@stellar/stellar-sdk";
-import { LedgerCore, pairKey, type Entry, type Scope } from "./core.ts";
+import { LedgerCore, pairKey, type Entry } from "./core.ts";
 import * as P from "./payload.ts";
 import { Chain, TESTNET, voucherScVal, A } from "./chain.ts";
 
@@ -31,6 +31,7 @@ const env = Object.fromEntries(
 );
 
 const PORT = Number(process.env.PORT ?? 8787);
+/** Otomatik parti araligi (AUTO_SETTLE acikken). */
 const ROUND_MS = Number(process.env.ROUND_MS ?? 30_000);
 /** Parti basina en fazla cift. Olculen sinir ~190 (LIMITS.md), %75 pay. */
 const MAX_PAIRS = Number(process.env.MAX_PAIRS ?? 150);
@@ -66,7 +67,6 @@ function locked<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 let latestLedger = 0;
-const round = () => Math.floor(Date.now() / ROUND_MS);
 const known = new Set<string>();
 /** Arayuz icin adres etiketleri (demo scripti verir). */
 const labels = new Map<string, string>();
@@ -97,16 +97,15 @@ async function refresh(addrs: Iterable<string>, pairs: Iterable<[string, string]
   // Okumalar paralel, uygulama sirali ve senkron.
   const list = [...new Set(addrs)];
   const reads = await pooled(list, (x) =>
-    Promise.all([chain.balanceOf(x), chain.signerOf(x), chain.scopeOf(x), chain.exitAtOf(x)]),
+    Promise.all([chain.balanceOf(x), chain.signerOf(x), chain.exitAtOf(x)]),
   );
   const pairList = [...pairs];
   const paids = await pooled(pairList, ([p, r]) => chain.paidBetween(p, r));
   list.forEach((x, i) => {
-    const [bal, signer, scope, exitAt] = reads[i];
+    const [bal, signer, exitAt] = reads[i];
     remember(x);
     balances.set(x, bal);
     if (signer) core.setSigner(x, signer);
-    if (scope) core.setScope(x, scope);
     if (exitAt !== null && !core.exiting.has(x)) {
       core.markExiting(x);
       emit("exit_seen", { who: x });
@@ -134,7 +133,6 @@ async function watch() {
     switch (ev.name) {
       case "joined":
       case "deposited":
-      case "scope_set":
         dirty.add(who!);
         break;
       case "exit_started":
@@ -244,8 +242,6 @@ function acceptVoucher(body: {
     return { status: "refused", reason: "underpaid" };
   }
   const r = core.accept(v, {
-    ledger: latestLedger,
-    round: round(),
     verifySig: (x, signer) => P.verifyHex(signer, P.voucherHash(hubCfg, x.payer, x.recipient, x.cumulative), x.sig),
   });
   if (!r.ok) {
@@ -282,7 +278,6 @@ function stateView() {
       pendingIn: p.in,
       reserved: core.reserved(x),
       exiting: core.exiting.has(x),
-      scope: core.scopes.get(x) ?? null,
     };
   });
   return {
@@ -448,4 +443,3 @@ boot().catch((e) => {
   process.exit(1);
 });
 
-export type { Scope };

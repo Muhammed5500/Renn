@@ -1,14 +1,13 @@
 // Demo ve e2e scriptleri icin testnet yardimcilari.
-// Taze ajan hesabi: friendbot, token mint, join, deposit, set_scope.
+// Taze ajan hesabi: friendbot, token mint, join, deposit.
 
 import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { Keypair } from "@stellar/stellar-sdk";
-import { Chain, TESTNET, A, scopeScVal } from "../src/chain.ts";
+import { Chain, TESTNET, A } from "../src/chain.ts";
 import { Agent } from "../src/agent.ts";
 import * as P from "../src/payload.ts";
-import type { Scope } from "../src/core.ts";
 
 const ROOT = new URL("../../", import.meta.url);
 export const dep = JSON.parse(readFileSync(new URL("deployments.json", ROOT), "utf8"));
@@ -38,17 +37,11 @@ async function fund(g: string) {
   if (!r.ok) throw new Error(`friendbot ${g}: ${r.status}`);
 }
 
-export const openScope = (maxPerRound = 1_000_000n * U): Scope => ({
-  limits: new Map(),
-  maxPerRound,
-  expiresLedger: 4_000_000_000,
-});
-
-/** Taze, kayitli, yatirmis, kapsamli ajan. join=false ise saf alici. */
+/** Taze, kayitli, yatirmis ajan. join=false ise saf alici. */
 export async function newAgent(
   name: string,
   deposit: bigint,
-  opts: { join?: boolean; scope?: Scope } = {},
+  opts: { join?: boolean } = {},
 ): Promise<TestAgent> {
   const kp = Keypair.random();
   await fund(kp.publicKey());
@@ -60,7 +53,6 @@ export async function newAgent(
   });
   if (opts.join !== false) {
     await chain.invoke(kp, "join", [A.addr(kp.publicKey()), A.bytes(agent.commitmentKey)]);
-    await chain.invoke(kp, "set_scope", [A.addr(kp.publicKey()), scopeScVal(opts.scope ?? openScope())]);
   }
   if (deposit > 0n) {
     await asDeployer(() => chain.invoke(deployer, "mint", [A.addr(kp.publicKey()), A.i128(deposit)], dep.token));

@@ -191,11 +191,9 @@ function addEvent(html) {
 }
 
 const REASON = {
-  insufficient_spendable: "harcanabilir yetmiyor", over_round_cap: "tur tavanı aşıldı",
-  not_allowlisted: "izin listesinde değil", over_recipient_cap: "alıcı tavanı aşıldı",
-  scope_expired: "kapsam süresi doldu", no_scope: "kapsam yok", exiting: "ödeyen çıkışta",
+  insufficient_spendable: "harcanabilir yetmiyor", exiting: "ödeyen çıkışta",
   stale: "eski fiş", bad_signature: "imza geçersiz", not_joined: "kayıtlı değil",
-  self_payment: "kendine ödeme", underpaid: "bedelin altında",
+  self_payment: "kendine ödeme", underpaid: "bedelin altında", bad_amount: "geçersiz tutar",
 };
 
 function renderNet(title, items) {

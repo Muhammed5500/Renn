@@ -1,7 +1,7 @@
 // ADIM D2 - Golge defterin beyni. SAF MANTIK.
 //
-// Ag cagrisi yok, saat okumasi yok, kripto yok. Zaman (ledger, tur) ve imza
-// kontrolu disaridan parametre olarak gelir. Ayni girdiye her zaman ayni
+// Ag cagrisi yok, saat okumasi yok, kripto yok. Imza kontrolu disaridan
+// parametre olarak gelir. Ayni girdiye her zaman ayni
 // cevap. Bu dosya ileride ZK devresinin sartnamesi olacak (plan par.11).
 //
 // Plan: Son 2 Plan/PLAN-golge-defter.md par.3.
@@ -19,15 +19,6 @@
 // Tutarlar bigint, 7 ondalik. number KULLANMA.
 
 export type Addr = string;
-
-export type Scope = {
-  /** bos = acik mod. dolu = izin listesi + alici basina KUMULATIF tavan */
-  limits: Map<Addr, bigint>;
-  /** defterin turu basina bu odeyenin toplam harcama tavani */
-  maxPerRound: bigint;
-  /** bu ledger'dan sonra kabul yok */
-  expiresLedger: number;
-};
 
 export type VoucherIn = {
   payer: Addr;
@@ -52,11 +43,6 @@ export type Refusal =
   | "self_payment"
   | "exiting"
   | "stale"
-  | "no_scope"
-  | "scope_expired"
-  | "not_allowlisted"
-  | "over_recipient_cap"
-  | "over_round_cap"
   | "insufficient_spendable"
   | "bad_amount";
 
@@ -65,10 +51,6 @@ export type AcceptResult =
   | { ok: false; reason: Refusal };
 
 export type Ctx = {
-  /** simdiki ledger numarasi (kapsam suresi icin) */
-  ledger: number;
-  /** defterin tur numarasi (max_per_round icin). Sunucu hesaplar. */
-  round: number;
   /** odeyenin imzasini dogrular. Cekirdek kripto bilmez. */
   verifySig: (v: VoucherIn, signerHex: string) => boolean;
 };
@@ -102,7 +84,6 @@ export class LedgerCore {
   // ---- zincirden gelen gercekler ----
   balances = new Map<Addr, bigint>();
   signers = new Map<Addr, string>();
-  scopes = new Map<Addr, Scope>();
   exiting = new Set<Addr>();
   /** zincirdeki paid_between */
   settledCum = new Map<string, bigint>();
@@ -114,8 +95,6 @@ export class LedgerCore {
   entries: Entry[] = [];
   /** cekim onayi icin ayrilmis tutarlar */
   reservations: Reservation[] = [];
-  /** odeyen basina bu turda harcanan */
-  roundSpent = new Map<Addr, { round: number; spent: bigint }>();
   /** zincire gonderilmis ama sonucu gelmemis parti */
   inflight: Batch | null = null;
 
@@ -181,20 +160,6 @@ export class LedgerCore {
     if (v.cumulative <= prev) return { ok: false, reason: "stale" };
     const delta = v.cumulative - prev;
 
-    const s = this.scopes.get(v.payer);
-    if (!s) return { ok: false, reason: "no_scope" };
-    if (ctx.ledger > s.expiresLedger) return { ok: false, reason: "scope_expired" };
-    if (s.limits.size > 0) {
-      const cap = s.limits.get(v.recipient);
-      if (cap === undefined) return { ok: false, reason: "not_allowlisted" };
-      if (v.cumulative > cap) return { ok: false, reason: "over_recipient_cap" };
-    }
-    const rs = this.roundSpent.get(v.payer);
-    const spentThisRound = rs && rs.round === ctx.round ? rs.spent : 0n;
-    if (spentThisRound + delta > s.maxPerRound) {
-      return { ok: false, reason: "over_round_cap" };
-    }
-
     if (this.spendable(v.payer) < delta) {
       return { ok: false, reason: "insufficient_spendable" };
     }
@@ -204,7 +169,6 @@ export class LedgerCore {
     const entry: Entry = { ...v, seq: this.seq, delta };
     this.entries.push(entry);
     this.lastCum.set(pk(v.payer, v.recipient), v.cumulative);
-    this.roundSpent.set(v.payer, { round: ctx.round, spent: spentThisRound + delta });
     return { ok: true, entry, spendableAfter: this.spendable(v.payer) };
   }
 
@@ -286,10 +250,6 @@ export class LedgerCore {
 
   setSigner(x: Addr, pubHex: string): void {
     this.signers.set(x, pubHex);
-  }
-
-  setScope(x: Addr, s: Scope): void {
-    this.scopes.set(x, s);
   }
 
   /** Deposited olayi. Bakiye sadece artar. */

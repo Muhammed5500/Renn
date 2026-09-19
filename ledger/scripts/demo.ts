@@ -7,7 +7,7 @@
 // Her sayi calisan sistemden geliyor: defterin /state'i ve zincir okumalari.
 
 import { Keypair } from "@stellar/stellar-sdk";
-import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, openScope, LEDGER, U } from "./testnet.ts";
+import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, LEDGER, U } from "./testnet.ts";
 import { A, voucherScVal } from "../src/chain.ts";
 
 const only = process.argv.slice(2).map(Number);
@@ -22,17 +22,17 @@ const view = async (addr: string) => (await ledgerState()).participants.find((p:
 
 console.log("Sahne oncesi: ajanlar kuruluyor (friendbot, kayit, yatirma)...");
 const t0 = Date.now();
-const [a, b, c, ahmet, e, kand, ...payers] = await Promise.all([
+const [a, b, c, ahmet, e, deniz, ...payers] = await Promise.all([
   newAgent("A", 20n * U),
   newAgent("B", 0n),
   newAgent("C", 0n),
   newAgent("Ahmet", 10n * U),
   newAgent("E", 0n),
-  newAgent("Kandirilmis", 50n * U, { scope: openScope(5n * U) }), // tur basina en fazla 5
+  newAgent("Deniz", 50n * U),
   ...[1, 2, 3, 4, 5].map((i) => newAgent(`P${i}`, 10n * U)),
 ]);
 const services = Array.from({ length: 25 }, () => Keypair.random().publicKey()); // saf alicilar
-const everyone = [a, b, c, ahmet, e, kand, ...payers];
+const everyone = [a, b, c, ahmet, e, deniz, ...payers];
 await track(
   everyone.map((x) => x.address),
   Object.fromEntries([
@@ -112,18 +112,16 @@ if (want(3)) {
 
 // ================= SAHNE 4 =================
 if (want(4)) {
-  scene(4, "IZIN VE CEKIM", "Kilitli ama hapis degil.");
-  const r1 = await kand.agent.pay(services[2], 40n * U);
-  console.log(`  kandirilmis ajan 40 odemeye calisiyor (tur tavani 5):  ${r1.status === "refused" ? "RET  " + r1.reason : "kabul"}`);
-  console.log(`  -> odeme hic olmadi, geri alinacak bir sey yok`);
-  const r2 = await kand.agent.pay(services[2], 3n * U);
-  console.log(`  ayni ajan 3 oduyor:  ${r2.status}`);
-  const before = await chain.tokenBalance(kand.address);
+  scene(4, "CEKIM", "Kilitli ama hapis degil.");
+  const r = await deniz.agent.pay(services[2], 3n * U);
+  console.log(`  Deniz (50) bir servise 3 oduyor: ${r.status === "accepted" ? "kabul, henuz uzlasmadi" : "RET " + (r as any).reason}`);
+  const before = await chain.tokenBalance(deniz.address);
   const t = Date.now();
-  const w = await withdrawApproved(kand, 20n * U);
-  console.log(`  sahibi 20 cekiyor: defter bekleyen fisleri uzlastirdi, onay verdi`);
+  const w = await withdrawApproved(deniz, 20n * U);
+  console.log(`  Deniz 20 cekiyor: defter bekleyen fisi uzlastirdi, onay verdi`);
   console.log(`  cekim: ${tx(w.hash)}`);
-  console.log(`  cuzdan: ${fmt(before)} -> ${fmt(await chain.tokenBalance(kand.address))}   (${Math.round((Date.now() - t) / 1000)} sn, exit_start yok)`);
+  console.log(`  cuzdan: ${fmt(before)} -> ${fmt(await chain.tokenBalance(deniz.address))}   (${Math.round((Date.now() - t) / 1000)} sn, exit_start yok)`);
+  console.log(`  kasada kalan: ${fmt(await chain.balanceOf(deniz.address))}   (50 - 3 - 20)`);
 }
 
 // ================= SAHNE 5 (opsiyonel) =================
@@ -133,7 +131,7 @@ if (want(5)) {
   // defteri hic kullanmadan kendisi uzlastiriyor.
   // harcanabiliri olan ilk ajan oder (onceki sahneler bakiyeleri degistirdi)
   let payer = a;
-  for (const x of [a, b, c, kand, ...payers]) {
+  for (const x of [a, b, c, deniz, ...payers]) {
     if (BigInt((await view(x.address)).spendable) >= U) {
       payer = x;
       break;
