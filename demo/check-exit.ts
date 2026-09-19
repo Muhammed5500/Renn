@@ -7,7 +7,7 @@
 // With the ledger running with AUTO_SETTLE=0: node demo/check-exit.ts
 
 import { newAgent, track, ledgerState, chain, dep, fmt, U, pay } from "./testnet.ts";
-import { A } from "@golge-defter/sdk/chain";
+import { A } from "renn/chain";
 
 const must = (c: boolean, m: string) => {
   if (!c) {

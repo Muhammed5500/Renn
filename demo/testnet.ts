@@ -3,7 +3,7 @@
 //
 // PAYMENTS ARE REAL x402 v2: each agent's selling endpoint lives on a local
 // "market" server (@x402/express paymentMiddleware), and the payer calls it
-// with the official client (@x402/fetch). The facilitator is the shadow
+// with the official client (@x402/fetch). The facilitator is the Renn
 // ledger. Vouchers are NOT posted to the ledger directly.
 
 import http from "node:http";
@@ -11,15 +11,15 @@ import { execSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { Keypair } from "@stellar/stellar-sdk";
-import { Chain, TESTNET, A } from "@golge-defter/sdk/chain";
-import { Agent } from "@golge-defter/sdk/agent";
-import * as P from "@golge-defter/sdk/payload";
+import { Chain, TESTNET, A } from "renn/chain";
+import { Agent } from "renn/agent";
+import * as P from "renn/payload";
 import express from "express";
 import { paymentMiddleware } from "@x402/express";
 import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
 import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NETWORK } from "@golge-defter/sdk/x402";
+import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NETWORK } from "renn/x402";
 
 const ROOT = new URL("../", import.meta.url);
 export const dep = JSON.parse(readFileSync(new URL("deployments.json", ROOT), "utf8"));

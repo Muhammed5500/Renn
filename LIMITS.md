@@ -45,8 +45,8 @@ An x402 `exact` payment measured on mainnet during research: 23,579 stroops
 | | XLM |
 |---|---:|
 | x402, per payment | 0.0024 |
-| Shadow ledger, repeated pair, **per batch** | 0.0009 |
-| Shadow ledger, new pair, first time | 0.0189 |
+| Renn, repeated pair, **per batch** | 0.0009 |
+| Renn, new pair, first time | 0.0189 |
 
 So for a repeated pair the cost is below x402 even if the batch holds a
 **single payment**. The gap grows in proportion to the number of payments. The

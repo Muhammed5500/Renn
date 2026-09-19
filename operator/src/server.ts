@@ -1,4 +1,4 @@
-// STEP D3 + D4 - Shadow ledger server.
+// STEP D3 + D4 - Renn ledger server.
 //
 // One process. Accepts vouchers (core.ts), signs them as the operator, sends
 // prefixes of the acceptance order to the chain as batches, watches chain events.
@@ -12,15 +12,15 @@
 //   POST /verify            x402 facilitator: would the voucher be accepted (read-only)
 //   POST /settle            x402 facilitator: accept the voucher into the ledger
 //
-// Plan: PLAN-golge-defter.md (outside the repo, one level above Proje/) par.3 and STEP D3-D4.
+// Plan: PLAN-renn.md (outside the repo, one level above Proje/) par.3 and STEP D3-D4.
 
 import http from "node:http";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { scValToNative, xdr } from "@stellar/stellar-sdk";
 import { LedgerCore, pairKey, type Entry } from "./core.ts";
-import * as P from "@golge-defter/sdk/payload";
-import { Chain, TESTNET, voucherScVal, A } from "@golge-defter/sdk/chain";
-import { SCHEME, NETWORK, type VoucherPayload } from "@golge-defter/sdk/x402";
+import * as P from "renn/payload";
+import { Chain, TESTNET, voucherScVal, A } from "renn/chain";
+import { SCHEME, NETWORK, type VoucherPayload } from "renn/x402";
 import { Relayer } from "./relay.ts";
 
 // ================= settings =================
@@ -699,7 +699,7 @@ async function boot() {
   await locked(watch).catch((e) => console.error("first event read:", (e as Error).message));
 
   server.listen(PORT, () => {
-    console.log(`shadow ledger: http://localhost:${PORT}  hub ${dep.hub}`);
+    console.log(`renn ledger: http://localhost:${PORT}  hub ${dep.hub}`);
     console.log(`operator: ${opKp.publicKey()}`);
     console.log(relayer ? `relayer (private entry): ${relayer.address}  SPP pool ${relayer.cfg.sppPool}` : "relayer off (no RELAYER_SECRET)");
     console.log(

@@ -3,7 +3,7 @@
 //! CAP-86 WARNING (Protocol 28): fields with empty values are no longer
 //! published. Write event tests by field NAME, not by position.
 //!
-//! The shadow ledger listens to `Joined`, `Deposited`, `ExitStarted`,
+//! The ledger listens to `Joined`, `Deposited`, `ExitStarted`,
 //! `Withdrawn` and `Settled`. Do NOT rename fields.
 //!
 //! v3.3: no receipts, the record is read from these events.

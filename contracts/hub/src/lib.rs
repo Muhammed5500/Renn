@@ -1,12 +1,12 @@
 #![no_std]
-//! Shadow Ledger - many-to-many, instant agent payments
+//! Renn - many-to-many, instant agent payments
 //!
 //! Agents pay each other instantly. Nobody can spend more than they hold in
 //! the vault. The whole network settles in one transaction.
 //!
 //! This contract is the VAULT: it holds the money, nets vouchers that carry
 //! two signatures, and updates internal balances. The spendable balance is
-//! tracked off chain by the shadow ledger (the operator). The contract rejects
+//! tracked off chain by the ledger (the operator). The contract rejects
 //! any voucher without the operator's acceptance signature, so the ledger
 //! cannot be bypassed.
 //!
@@ -14,7 +14,7 @@
 //! withdrawal the owner's) and CANNOT lock funds (the exit_start escape hatch
 //! works without the operator).
 //!
-//! Plan: `PLAN-golge-defter.md` v3.3 (outside the repo).
+//! Plan: `PLAN-renn.md` v3.3 (outside the repo).
 
 use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, Vec};
 

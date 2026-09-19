@@ -70,7 +70,7 @@ pub fn settle_one(e: &Env, v: &Voucher) -> Result<i128, Error> {
 /// Three passes: verification, netting to a fixed point, application.
 ///
 /// ATOMICITY IS PER PAYER, NOT PER BATCH. An unbacked payer does not fail the
-/// batch, only its own vouchers are dropped. Because the shadow ledger builds
+/// batch, only its own vouchers are dropped. Because the ledger builds
 /// each batch as a PREFIX of its acceptance order, normally nobody is
 /// dropped; the loop stays as a safety net.
 ///

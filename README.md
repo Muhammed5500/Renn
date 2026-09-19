@@ -1,4 +1,4 @@
-# Shadow Ledger (working name)
+# Renn
 
 **Agents pay each other instantly. Nobody can spend more than they hold. The whole network settles in one transaction.**
 
@@ -48,7 +48,7 @@ x402 example (`examples/x402-weather.ts`): a weather API behind `@x402/express` 
 ## Integration: the official x402 packages
 
 ```ts
-import { Agent, BatchSettlementStellarClient, BatchSettlementStellarServer } from "@golge-defter/sdk";
+import { Agent, BatchSettlementStellarClient, BatchSettlementStellarServer } from "renn";
 
 // service
 const server = new x402ResourceServer(new HTTPFacilitatorClient({ url: LEDGER }))
@@ -97,7 +97,7 @@ W (known wallet) --deposit--> SPP pool --withdraw--> F (fresh address) --join, d
 From the SDK it is one call:
 
 ```ts
-import { SppCli, privateOnboard, Chain, TESTNET } from "@golge-defter/sdk";
+import { SppCli, privateOnboard, Chain, TESTNET } from "renn";
 
 const chain = new Chain({ ...TESTNET, hub: VAULT, token: TOKEN }, ANY_FUNDED_ACCOUNT);   // reads simulate from this account
 const spp = new SppCli({ bin: "spp", circuits: "./circuits", deployment: "spp/deployments.json", relayUrl: LEDGER });
@@ -149,7 +149,7 @@ Three packages (npm workspaces). An agent or a paid service needs only the SDK; 
 contracts/hub          Soroban vault: join, deposit, settle_one, settle_batch (netting), withdrawals
 contracts/token        SEP-41 test token (Circle's testnet faucet has no API)
 
-sdk/                   @golge-defter/sdk: what agents and services use
+sdk/                   renn: what agents and services use
   src/agent.ts           the agent's voucher key; syncs cumulative amounts with the ledger
   src/x402.ts            x402 scheme: BatchSettlementStellarClient (payer), BatchSettlementStellarServer (seller)
   src/payload.ts         the three signed payloads, byte-identical to the contract

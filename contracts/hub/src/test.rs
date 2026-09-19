@@ -36,7 +36,7 @@ pub struct Fix<'a> {
     pub token: testtoken::TestTokenClient<'a>,
     pub hub_addr: Address,
     pub token_addr: Address,
-    /// The shadow ledger's key.
+    /// The ledger's key.
     pub op: Key,
 }
 

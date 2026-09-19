@@ -1,4 +1,4 @@
-// @golge-defter/sdk: everything an agent or a service uses.
+// renn: everything an agent or a service uses.
 //
 //   paying agent   : Agent + BatchSettlementStellarClient (x402 client)
 //   selling service: BatchSettlementStellarServer (x402 resource server)

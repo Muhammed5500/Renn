@@ -26,7 +26,7 @@ use crate::storage as st;
 use crate::voucher;
 
 /// Exit announcement. Starts the countdown.
-/// When the shadow ledger sees this event it stops accepting the payer's
+/// When the ledger sees this event it stops accepting the payer's
 /// vouchers and settles the pending ones right away.
 pub fn exit_start(e: &Env, who: &Address) -> Result<(), Error> {
     if st::get_exit_at(e, who).is_some() {

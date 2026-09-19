@@ -23,7 +23,7 @@ import {
   scValToNative,
   type xdr,
 } from "@stellar/stellar-sdk";
-import type { Chain } from "@golge-defter/sdk/chain";
+import type { Chain } from "renn/chain";
 
 export type RelayCfg = {
   passphrase: string;

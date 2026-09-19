@@ -1,6 +1,6 @@
 # Deliberate simplifications and known limits
 
-Plan: `../PLAN-golge-defter.md` (outside the repo) v3.3, §10.
+Plan: `../PLAN-renn.md` (outside the repo) v3.3, §10.
 
 ## Left out of scope
 

@@ -7,7 +7,7 @@ pub struct Config {
     /// SEP-41 token. It is an INTERFACE - the code makes no assumption about this address.
     /// Adding the SPP entry later depends on this (plan section 11, item 1).
     pub token: Address,
-    /// Raw ed25519 public key of the shadow ledger (the operator). The contract
+    /// Raw ed25519 public key of the ledger (the operator). The contract
     /// rejects any voucher without this key's acceptance signature, so the
     /// ledger cannot be bypassed.
     pub operator: BytesN<32>,

@@ -48,7 +48,7 @@ VH=$(rd -- voucher_hash --payer "$P" --recipient "$R" --cumulative "$CUM")
 SIG=$(node scripts/sign.js sign "$SEED_P" "$VH")
 echo "payer signature:    ${SIG:0:24}..."
 
-say "3. The shadow ledger accepts it (operator signature)"
+say "3. The ledger accepts it (operator signature)"
 AH=$(rd -- accept_hash --payer "$P" --recipient "$R" --cumulative "$CUM")
 OPSIG=$(node scripts/sign.js sign "$OP_SEED" "$AH")
 echo "operator signature: ${OPSIG:0:24}..."

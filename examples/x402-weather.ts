@@ -3,7 +3,7 @@
 //   - Weather service: @x402/express paymentMiddleware. The service is a PURE
 //     RECIPIENT: not registered on chain, no account opened, just an address.
 //   - Agent: @x402/fetch wrapFetchWithPayment. It uses plain fetch.
-//   - Facilitator: the shadow ledger (/supported, /settle).
+//   - Facilitator: the ledger (/supported, /settle).
 //
 // With the ledger running:  node examples/x402-weather.ts
 
@@ -13,9 +13,9 @@ import { paymentMiddleware } from "@x402/express";
 import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
 import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NETWORK } from "@golge-defter/sdk/x402";
+import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NETWORK } from "renn/x402";
 import { newAgent, track, settleNow, ledgerState, chain, dep, fmt, LEDGER, U } from "../demo/testnet.ts";
-import { A } from "@golge-defter/sdk/chain";
+import { A } from "renn/chain";
 
 // ---------------- selling side (service) ----------------
 const SERVICE = Keypair.random().publicKey(); // no account opened

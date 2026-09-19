@@ -1,5 +1,5 @@
 {
-  "name": "@golge-defter/sdk",
+  "name": "renn",
   "version": "0.1.0",
   "description": "Agent and service side: voucher key, x402 batch-settlement scheme (client + seller), vault calls, private entry through SPP.",
   "type": "module",
@@ -12,7 +12,9 @@
     "./private": "./src/private.ts",
     "./spp": "./src/spp.ts"
   },
-  "scripts": { "test": "node --test \"test/*.test.ts\"" },
+  "scripts": {
+    "test": "node --test \"test/*.test.ts\""
+  },
   "dependencies": {
     "@stellar/stellar-sdk": "^17.1.0",
     "@x402/core": "^2.26.0"

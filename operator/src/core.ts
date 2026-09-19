@@ -1,10 +1,10 @@
-// STEP D2 - The shadow ledger's brain. PURE LOGIC.
+// STEP D2 - The ledger's brain. PURE LOGIC.
 //
 // No network calls, no clock reads, no crypto. Signature checks come in as a
 // parameter. The same input always gives the same answer. This file is meant
 // to become the spec of a ZK circuit later (plan par.11).
 //
-// Plan: PLAN-golge-defter.md (outside the repo, one level above Proje/) par.3.
+// Plan: PLAN-renn.md (outside the repo, one level above Proje/) par.3.
 //
 // THE ONE RULE (plan par.3.1):
 //

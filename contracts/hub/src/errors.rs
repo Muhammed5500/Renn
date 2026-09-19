@@ -1,6 +1,6 @@
 use soroban_sdk::contracterror;
 
-/// Error codes. Numbers are taken exactly from PLAN-golge-defter.md section 4.
+/// Error codes. Numbers are taken exactly from PLAN-renn.md section 4.
 ///
 /// Codes marked DEAD are left over from earlier architectures. Do NOT shift
 /// the numbers, leave them in place - everything outside (ledger, SDK, demo)

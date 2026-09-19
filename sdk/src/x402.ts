@@ -12,7 +12,7 @@
 //   const client = new x402Client().register(NETWORK, new BatchSettlementStellarClient(agent));
 //   const fetch = wrapFetchWithPayment(globalThis.fetch, client);
 //
-// The facilitator is the shadow ledger itself (operator/src/server.ts: /supported, /verify, /settle).
+// The facilitator is the ledger itself (operator/src/server.ts: /supported, /verify, /settle).
 //
 // Flow "upfront": x402 core calls /settle BEFORE running the handler.
 // /settle does not touch the chain; it ACCEPTS the voucher into the ledger

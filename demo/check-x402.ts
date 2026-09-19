@@ -14,7 +14,7 @@ import { paymentMiddleware } from "@x402/express";
 import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
 import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NETWORK } from "@golge-defter/sdk/x402";
+import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NETWORK } from "renn/x402";
 import { newAgent, track, dep, LEDGER, U } from "./testnet.ts";
 
 const must = (c: boolean, m: string) => {

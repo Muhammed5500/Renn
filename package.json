@@ -1,10 +1,16 @@
 {
-  "name": "golge-defter",
+  "name": "renn-monorepo",
   "private": true,
   "type": "module",
-  "description": "Shadow Ledger (golge-defter): instant many-to-many agent payments on Stellar testnet.",
-  "workspaces": ["sdk", "operator", "demo"],
-  "engines": { "node": ">=23.6" },
+  "description": "Renn: instant many-to-many agent payments on Stellar, settled in one transaction.",
+  "workspaces": [
+    "sdk",
+    "operator",
+    "demo"
+  ],
+  "engines": {
+    "node": ">=23.6"
+  },
   "scripts": {
     "start": "npm run start -w operator",
     "test": "npm test -w sdk -w operator",
