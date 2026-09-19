@@ -1,14 +1,10 @@
-// Ajan istemcisi: fis imzalar, deftere asar. SDK'nin cekirdegi (ADIM S).
+// Ajan: fis anahtari ve kimligi. x402 istemci semasi (x402.ts) bunu kullanir.
 //
-// Ajan cift basina KUMULATIF tutar. Her odeme bir oncekinin yerine gecen yeni
-// bir fis. Surec cokerse son kabul edilen kumulatifi defterden sorar
-// (GET /pair), yerel defterin kaybolmasi sorun degil.
+// Fis cift basina KUMULATIF. Kumulatif her odemede defterin bildigi son
+// degerden hesaplanir (GET /pair). `cum` sadece o okumanin onbellegi: surec
+// cokerse ya da bir odeme basarisiz olursa fazla odeme olmaz.
 
 import * as P from "./payload.ts";
-
-export type PayResult =
-  | { status: "accepted"; seq: number; op_sig: string; spendable_after: string; cumulative: bigint }
-  | { status: "refused"; reason: string };
 
 export class Agent {
   address: string;
@@ -38,31 +34,10 @@ export class Agent {
     return c;
   }
 
-  /** Imzali fis, henuz gonderilmemis. Alici bunu deftere asar. */
+  /** Onbellekteki kumulatif uzerinden imzali fis. Sadece olcum scripti (limits.ts) kullanir. */
   voucher(recipient: string, amount: bigint) {
     const cumulative = (this.cum.get(recipient) ?? 0n) + amount;
     const sig = P.signHex(this.key, P.voucherHash(this.hub, this.address, recipient, cumulative));
     return { payer: this.address, recipient, cumulative: cumulative.toString(), sig };
-  }
-
-  /**
-   * Ode. ZINCIRE GITMEZ. Fis deftere asilir, defter kabul ederse yerel
-   * kumulatif ilerler. Ret halinde kumulatif ilerlemez.
-   */
-  async pay(recipient: string, amount: bigint): Promise<PayResult> {
-    if (!this.cum.has(recipient)) await this.sync(recipient);
-    const v = this.voucher(recipient, amount);
-    const r = await fetch(`${this.ledgerUrl}/vouchers`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(v),
-    });
-    const j = (await r.json()) as PayResult;
-    if (j.status === "accepted") {
-      this.cum.set(recipient, BigInt(v.cumulative));
-      return { ...j, cumulative: BigInt(v.cumulative) };
-    }
-    if (j.status === "refused" && j.reason === "stale") await this.sync(recipient);
-    return j;
   }
 }

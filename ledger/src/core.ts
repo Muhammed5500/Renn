@@ -149,6 +149,22 @@ export class LedgerCore {
    * ayni harcanabilir bakiyeyi gorur ve cift harcama geri gelir (par.3.3).
    */
   accept(v: VoucherIn, ctx: Ctx): AcceptResult {
+    const e = this.evaluate(v, ctx);
+    if (!e.ok) return e;
+
+    // ---- kabul ----
+    this.seq += 1;
+    const entry: Entry = { ...v, seq: this.seq, delta: e.delta };
+    this.entries.push(entry);
+    this.lastCum.set(pk(v.payer, v.recipient), v.cumulative);
+    return { ok: true, entry, spendableAfter: this.spendable(v.payer) };
+  }
+
+  /**
+   * accept()'in kontrollerinin HICBIR SEY DEGISTIRMEYEN hali. x402'nin
+   * /verify ucu bunu kullanir (spec: verify salt okunur olmali).
+   */
+  evaluate(v: VoucherIn, ctx: Ctx): { ok: true; delta: bigint } | { ok: false; reason: Refusal } {
     const signer = this.signers.get(v.payer);
     if (!signer) return { ok: false, reason: "not_joined" };
     if (v.payer === v.recipient) return { ok: false, reason: "self_payment" };
@@ -163,13 +179,7 @@ export class LedgerCore {
     if (this.spendable(v.payer) < delta) {
       return { ok: false, reason: "insufficient_spendable" };
     }
-
-    // ---- kabul ----
-    this.seq += 1;
-    const entry: Entry = { ...v, seq: this.seq, delta };
-    this.entries.push(entry);
-    this.lastCum.set(pk(v.payer, v.recipient), v.cumulative);
-    return { ok: true, entry, spendableAfter: this.spendable(v.payer) };
+    return { ok: true, delta };
   }
 
   // ================= parti (plan par.3.4) =================

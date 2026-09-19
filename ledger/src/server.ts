@@ -3,12 +3,14 @@
 // Tek surec. Fisleri kabul eder (core.ts), operator olarak imzalar, kabul
 // sirasinin oneklerini parti olarak zincire gonderir, zincir olaylarini izler.
 //
-//   POST /vouchers          fis as. {payer, recipient, cumulative, sig}
 //   GET  /state             herkesin kilitli / harcanabilir bakiyesi
 //   GET  /pair/:p/:r        son kabul edilen kumulatif (odeyen SDK'si toparlanir)
 //   GET  /feed              SSE: accepted, refused, batch_sent, batch_settled, ...
 //   POST /withdraw          cekim onayi. {who, amount}
-//   POST /settle            simdi parti gonder (demo)
+//   POST /flush             simdi parti gonder (demo)
+//   GET  /supported         x402 facilitator: desteklenen sema ve ag
+//   POST /verify            x402 facilitator: fis kabul edilir mi (salt okunur)
+//   POST /settle            x402 facilitator: fisi defterde kabul et
 //
 // Plan: Son 2 Plan/PLAN-golge-defter.md par.3 ve ADIM D3-D4.
 
@@ -18,6 +20,7 @@ import { scValToNative, xdr } from "@stellar/stellar-sdk";
 import { LedgerCore, pairKey, type Entry } from "./core.ts";
 import * as P from "./payload.ts";
 import { Chain, TESTNET, voucherScVal, A } from "./chain.ts";
+import { SCHEME, NETWORK, type VoucherPayload } from "./x402.ts";
 
 // ================= ayarlar =================
 
@@ -37,6 +40,8 @@ const ROUND_MS = Number(process.env.ROUND_MS ?? 30_000);
 const MAX_PAIRS = Number(process.env.MAX_PAIRS ?? 150);
 const LOG = new URL(process.env.LEDGER_LOG ?? "ledger.log", new URL("../", import.meta.url));
 const AUTO_SETTLE = process.env.AUTO_SETTLE !== "0";
+/** x402 istemcilerinin defteri bulacagi adres (/supported'da ilan edilir). */
+const PUBLIC_URL = process.env.PUBLIC_URL ?? `http://localhost:${PORT}`;
 
 const opKp = P.keyFromSeed(env.OPERATOR_SEED);
 if (P.pubHex(opKp) !== dep.operator) throw new Error(".env'deki operator anahtari deployments.json ile uyusmuyor");
@@ -264,7 +269,13 @@ function acceptVoucher(body: {
     spendableAfter: r.spendableAfter,
   });
   if (AUTO_SETTLE && core.entries.length >= MAX_PAIRS * 5) void flushUpTo(core.seq);
-  return { status: "accepted", seq: r.entry.seq, op_sig: r.entry.opSig, spendable_after: r.spendableAfter };
+  return {
+    status: "accepted",
+    seq: r.entry.seq,
+    delta: r.entry.delta,
+    op_sig: r.entry.opSig,
+    spendable_after: r.spendableAfter,
+  };
 }
 
 function stateView() {
@@ -291,6 +302,96 @@ function stateView() {
     inflight: core.inflight ? core.inflight.uptoSeq : null,
     stats,
     participants,
+  };
+}
+
+// ================= x402 facilitator (v2) =================
+//
+// Kaynak sunucusu (@x402/express paymentMiddleware) bu uclari HTTPFacilitatorClient
+// ile cagirir. Istek govdesi: { x402Version, paymentPayload, paymentRequirements }.
+
+function supported() {
+  return {
+    kinds: [
+      {
+        x402Version: 2,
+        scheme: SCHEME,
+        network: NETWORK,
+        // 402 cevabina eklenir: istemci hangi kasaya ve deftere odedigini bilir.
+        extra: { hub: dep.hub, ledger: PUBLIC_URL, operator: dep.operator },
+      },
+    ],
+    extensions: [],
+    signers: { "stellar:*": [opKp.publicKey()] },
+  };
+}
+
+type X402Req = {
+  x402Version?: number;
+  paymentPayload?: { x402Version?: number; accepted?: Record<string, unknown>; payload?: VoucherPayload };
+  paymentRequirements?: Record<string, any>;
+};
+
+/** Sema ve gereksinim kontrolleri. Sorun yoksa fis dondurur. */
+function parseX402(b: X402Req): { error: string } | { v: VoucherPayload["voucher"]; amount: bigint } {
+  const req = b.paymentRequirements;
+  const pp = b.paymentPayload;
+  if (!req || !pp) return { error: "invalid_request" };
+  if (req.scheme !== SCHEME || req.network !== NETWORK) return { error: "unsupported_scheme" };
+  if (req.asset !== dep.token) return { error: "wrong_asset" };
+  if (req.extra?.hub !== undefined && req.extra.hub !== dep.hub) return { error: "wrong_hub" };
+  const acc = pp.accepted ?? {};
+  for (const k of ["scheme", "network", "asset", "amount", "payTo"]) {
+    if (acc[k] !== req[k]) return { error: "requirements_mismatch" };
+  }
+  const v = pp.payload?.voucher;
+  if (pp.payload?.type !== "voucher" || !v) return { error: "invalid_payload" };
+  if (v.recipient !== req.payTo) return { error: "wrong_recipient" };
+  if (!/^\d+$/.test(String(req.amount)) || !/^\d+$/.test(String(v.cumulative))) return { error: "bad_amount" };
+  return { v, amount: BigInt(req.amount) };
+}
+
+/** /verify: SALT OKUNUR. Fis su an kabul edilir miydi? */
+function x402Verify(b: X402Req) {
+  const p = parseX402(b);
+  if ("error" in p) return { isValid: false, invalidReason: p.error };
+  const v = { payer: p.v.payer, recipient: p.v.recipient, cumulative: BigInt(p.v.cumulative), sig: p.v.signature };
+  const e = core.evaluate(v, {
+    verifySig: (x, signer) => P.verifyHex(signer, P.voucherHash(hubCfg, x.payer, x.recipient, x.cumulative), x.sig),
+  });
+  if (!e.ok) return { isValid: false, invalidReason: e.reason, payer: v.payer };
+  if (e.delta < p.amount) return { isValid: false, invalidReason: "underpaid", payer: v.payer };
+  return { isValid: true, payer: v.payer };
+}
+
+/** /settle: fisi defterde KABUL EDER. Zincire gitmez, deger toplu partide gider. */
+function x402Settle(b: X402Req) {
+  const p = parseX402(b);
+  if ("error" in p) return { success: false, errorReason: p.error, transaction: "", network: NETWORK };
+  const r = acceptVoucher({
+    payer: p.v.payer,
+    recipient: p.v.recipient,
+    cumulative: p.v.cumulative,
+    sig: p.v.signature,
+    min_delta: p.amount.toString(),
+  });
+  if (r.status !== "accepted") {
+    return { success: false, errorReason: r.reason, payer: p.v.payer, transaction: "", network: NETWORK };
+  }
+  const ok = r as { seq: number; delta: bigint; op_sig: string };
+  return {
+    success: true,
+    payer: p.v.payer,
+    transaction: "", // zincir islemi yok: deger bir sonraki partide gider
+    network: NETWORK,
+    amount: ok.delta.toString(),
+    extra: {
+      seq: ok.seq,
+      cumulative: p.v.cumulative,
+      // alici bu imzayla fisini operatorsuz da uzlastirabilir (settle_one)
+      operatorSignature: ok.op_sig,
+      payerSignature: p.v.signature,
+    },
   };
 }
 
@@ -380,15 +481,18 @@ const server = http.createServer(async (req, res) => {
     res.end(json(body));
   };
   try {
-    if (req.method === "POST" && url.pathname === "/vouchers") {
-      const out = acceptVoucher(await readBody(req));
-      return send(out.status === "accepted" ? 200 : 402, out);
-    }
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       return void res.end(readFileSync(new URL("../ui/index.html", import.meta.url)));
     }
     if (req.method === "GET" && url.pathname === "/state") return send(200, stateView());
+    if (req.method === "GET" && url.pathname === "/supported") return send(200, supported());
+    if (req.method === "POST" && url.pathname === "/verify") return send(200, x402Verify(await readBody(req)));
+    if (req.method === "POST" && url.pathname === "/settle") {
+      // NOT: eski demo ucu da /settle idi (bos govdeyle "simdi parti gonder").
+      // O artik /flush. Bu uc x402 facilitator'in settle'i.
+      return send(200, x402Settle(await readBody(req)));
+    }
     if (req.method === "GET" && url.pathname.startsWith("/pair/")) {
       const [, , p, r] = url.pathname.split("/");
       const last = core.entries.filter((e) => e.payer === p && e.recipient === r).at(-1);
@@ -410,7 +514,7 @@ const server = http.createServer(async (req, res) => {
       const out = await approveWithdraw(await readBody(req));
       return send(out.status === "approved" ? 200 : 400, out);
     }
-    if (req.method === "POST" && url.pathname === "/settle") {
+    if (req.method === "POST" && url.pathname === "/flush") {
       await flushUpTo(core.seq);
       return send(200, stateView());
     }
