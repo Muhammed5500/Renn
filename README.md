@@ -4,6 +4,8 @@
 
 Built for the Rise In x Stellar Pro Hackathon, Istanbul, 19-20 September 2026. Runs on Stellar testnet.
 
+**A real x402 v2 scheme.** `batch-settlement` on `stellar:testnet`, used through the official `@x402/express`, `@x402/fetch` and `@x402/core` packages. Every payment in the demo is a full x402 round trip. Binding spec: [`docs/scheme_batch_settlement_stellar.md`](docs/scheme_batch_settlement_stellar.md).
+
 ## The problem
 
 In an agent economy every agent is both a payer and a payee. Today's rails give two options:
@@ -32,25 +34,33 @@ spendable(x) = on-chain balance - reserved withdrawals + unsettled incoming - un
 
 | Scene | What happens | Result |
 |---|---|---|
-| 1. Circular debt | A holds 20. A→B 100, B→C 90, C→A 80 in small alternating payments | 270 payments, **1 transaction**, vault token balance unchanged. [tx](https://stellar.expert/explorer/testnet/tx/2c200bd0a12907b81c168ead50a4a5983d8efeaffdd319463e1d28d6b128badb) |
-| 2. Scale | 5 payers, 25 services, 600 payments | 600 payments accepted in 1.6-4 s over local HTTP, **1 transaction**. [tx](https://stellar.expert/explorer/testnet/tx/b9b67f786308758ce03f688a48ad5b5f4c5e87cdb3f763b99c648861e9071a31) |
+| 1. Circular debt | A holds 20. A→B 100, B→C 90, C→A 80 in small alternating payments | 270 payments, **1 transaction**, vault token balance unchanged. [tx](https://stellar.expert/explorer/testnet/tx/d61993088b75e34baa118a102b95fe952310499d5b5a46ae2986105a7fefb210) |
+| 2. Scale | 5 payers, 25 services, 600 payments | 600 x402 payments in ~2.4 s over local HTTP, **1 transaction**. [tx](https://stellar.expert/explorer/testnet/tx/41f0fe62e3370e7ba1bc007144b5a478497b82e46bbeefc694ef9bae7d6e3d4d) |
 | 3. Bounced cheque | Empty payer tries to pay. A payer tries to promise the same 10 twice | Both refused instantly: `insufficient_spendable` |
 | 4. Withdrawal | An agent with 50 pays 3, then withdraws 20 | Approved instantly, **no batch**: 3 of the 50 are promised, 20 are free. Tokens in the wallet in 4-8 s, no exit delay. [tx](https://stellar.expert/explorer/testnet/tx/d403dbcc366ec35f1e5169b8aedb30673881b53510764eb473458339b254e5f6) |
 | 5. Operator down | A recipient settles its own accepted voucher without the ledger. A payer starts the escape hatch | [settle_one](https://stellar.expert/explorer/testnet/tx/bde1f1dadc08c4ff4a5d27204b450b7c4ef577b9efe16f2009b437e048ae4814), [exit_start](https://stellar.expert/explorer/testnet/tx/0d1ee7595d0a267b0764fdc0856113080227dd1092509467a9961cccd2e0d725) |
 
-HTTP example (`ledger/examples/two-agents.ts`): an agent calls a weather API ten times with a plain `fetch`, each call paid by voucher, zero on-chain transactions. The service never created an account and never signed anything. It was paid by a permissionless `payout` after one batch. [batch](https://stellar.expert/explorer/testnet/tx/0c4b0b392b75bb665521e21e2dfb72c33796dc597821557a2c8196693f08b5b8)
+Every payment above goes through x402: the payer calls a paid endpoint with the official client, gets a 402, signs a voucher, and the resource server's official middleware asks the ledger (the facilitator) to settle before serving.
 
-## Integration is one line on each side
+x402 example (`ledger/examples/x402-weather.ts`): a weather API behind `@x402/express` is called ten times by an agent using `@x402/fetch`. Zero on-chain transactions per call. The service never created an account and never signed anything; it was paid by a permissionless `payout` after one batch.
+
+## Integration: the official x402 packages
 
 ```ts
 // service
-http.createServer(tab({ ledger, hub, recipient: ME, price: 200_000n }, handler))
+const server = new x402ResourceServer(new HTTPFacilitatorClient({ url: LEDGER }))
+  .register("stellar:testnet", new BatchSettlementStellarServer({ asset: TOKEN }));
+app.use(paymentMiddleware({ "GET /weather": { accepts: {
+  scheme: "batch-settlement", network: "stellar:testnet", payTo: ME, price: "0.02" } } }, server));
 
 // agent
-const fetch = wrapFetch(agent)   // the agent keeps using plain fetch
+const client = new x402Client().register("stellar:testnet", new BatchSettlementStellarClient(agent));
+const fetch = wrapFetchWithPayment(globalThis.fetch, client);   // plain fetch from here on
 ```
 
-The 402 response follows x402's `accepts` shape with a new scheme, `tab-v1`. The **recipient** posts the voucher to the ledger before serving, so a payer cannot hide a voucher from it.
+The flow is x402's `upfront`: the middleware calls the facilitator's `/settle` before running the handler. Our `/settle` records the voucher in the ledger (spendable-balance check, operator co-signature) and returns `transaction: ""`; value moves later in a batch, as the `batch-settlement` scheme allows. If settlement fails the handler never runs and the client gets a 402 with `errorReason` in `PAYMENT-RESPONSE`. The x402 client's own `spendControls` cap what an agent will pay per request.
+
+`ledger/scripts/check-x402.ts` verifies the wire format (`PAYMENT-REQUIRED`, `PAYMENT-SIGNATURE`, `PAYMENT-RESPONSE`), refusal paths and spend controls against testnet.
 
 ## Trust model
 
@@ -79,11 +89,12 @@ From `LIMITS.md` (simulation on testnet, two `ed25519_verify` per voucher):
 contracts/hub      Soroban vault: join, deposit, settle_one, settle_batch (netting), withdrawals
 contracts/token    SEP-41 test token (Circle's testnet faucet has no API)
 ledger/src/core.ts     the ledger's rules. Pure: no network, no clock, no crypto
-ledger/src/server.ts   HTTP + batcher + chain watcher
-ledger/src/http402.ts  tab() middleware and wrapFetch()
+ledger/src/server.ts   x402 facilitator (/supported, /verify, /settle) + batcher + chain watcher
+ledger/src/x402.ts     x402 scheme: BatchSettlementStellarServer, BatchSettlementStellarClient
 ledger/src/payload.ts  the three signed payloads, byte-identical to the contract
 ledger/ui/index.html   live dashboard served by the ledger (GET /), fed by /feed and /state
-ledger/scripts         demo.ts, e2e.ts, limits.ts
+ledger/scripts         demo.ts, e2e.ts, limits.ts, check-*.ts
+docs/                  x402 scheme binding spec
 ```
 
 Contract addresses are in `deployments.json`. Vault: [`CDDO6GAL...X3OK2`](https://stellar.expert/explorer/testnet/contract/CDDO6GALOUQE5X7HHM6KHCU7D27M377IKOU4RC4PLSJFJRLOJDMX3OK2).
@@ -99,7 +110,8 @@ stellar contract build
 cd ledger && npm install
 npm test                        # 26 ledger tests, including the prefix and withdrawal properties
 AUTO_SETTLE=0 npm start         # ledger on :8787 (needs ../.env with OPERATOR_SEED)
-node scripts/demo.ts            # scenes 0-5 on testnet
+node scripts/demo.ts            # scenes 0-5 on testnet, every payment over x402
+node scripts/check-x402.ts      # x402 v2 wire-format and refusal checks
 # live dashboard: http://localhost:8787
 ```
 
@@ -111,4 +123,5 @@ The demo scripts mint test tokens with the `deployer` identity of the Stellar CL
 - **Recipients trust the operator on solvency.** If it accepts a bad voucher, the recipient loses. The ledger is public and every voucher is signed, so the mistake is provable, but nothing compensates it yet (roadmap: operator bond).
 - **The ledger is public and pseudonymous.** Payment traffic is visible. Privacy is on the roadmap: SPP at the boundary needs zero contract changes, a closed ledger with a ZK validity proof is the full version.
 - **In escape mode netting can need ordering.** If the operator is down, recipients settle their own vouchers one by one, and in a cycle someone may have to wait for another to settle first.
+- **x402 binding not upstream.** The scheme follows the x402 v2 interfaces and runs with the official packages, but the Stellar `batch-settlement` binding is ours; it is not part of the x402 repository (see issue #3341).
 - **No audit.** Hackathon code.
