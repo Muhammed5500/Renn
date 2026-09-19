@@ -115,7 +115,15 @@ export class Chain {
       .addOperation(new Contract(contract).call(method, ...args))
       .setTimeout(60)
       .build();
-    tx = await this.server.prepareTransaction(tx);
+    try {
+      tx = await this.server.prepareTransaction(tx);
+    } catch (e) {
+      // Testnet RPC birden fazla dugum: onaydan hemen sonra geride kalan bir
+      // dugum eski durumu simule edebilir. Bir kez bekleyip tekrar dene.
+      console.warn(`${method}: simulasyon basarisiz, 2 sn sonra tekrar deneniyor (${String(e).slice(0, 80)})`);
+      await new Promise((r) => setTimeout(r, 2000));
+      tx = await this.server.prepareTransaction(tx);
+    }
     tx.sign(kp);
     const sent = await this.server.sendTransaction(tx);
     if (sent.status === "ERROR") {

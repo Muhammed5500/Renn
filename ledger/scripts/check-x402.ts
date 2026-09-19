@@ -26,6 +26,7 @@ const b64json = (h: string | null) => (h ? JSON.parse(Buffer.from(h, "base64").t
 
 const SERVICE = Keypair.random().publicKey();
 let handlerCalls = 0;
+let lastSigHeader: string | undefined;
 const rs = new x402ResourceServer(new HTTPFacilitatorClient({ url: LEDGER })).register(
   NETWORK,
   new BatchSettlementStellarServer({ asset: dep.token }),
@@ -40,8 +41,9 @@ app.use(
     rs,
   ),
 );
-app.get("/cheap", (_q, r) => {
+app.get("/cheap", (q, r) => {
   handlerCalls++;
+  lastSigHeader = q.header("payment-signature");
   r.json({ ok: true });
 });
 app.get("/pricey", (_q, r) => {
@@ -60,6 +62,11 @@ const clientFor = (a: typeof payer) =>
       .register(NETWORK, new BatchSettlementStellarClient(a.agent))
       .setSpendControls({ allowedAssets: [{ network: NETWORK, asset: dep.token, maxAmountPerPayment: String(U / 10n) }] }),
   );
+
+console.log("0) facilitator /supported");
+const sup = await fetch(`${LEDGER}/supported`).then((r) => r.json());
+console.log(`   ${JSON.stringify(sup.kinds.map((k: any) => [k.x402Version, k.scheme, k.network]))}`);
+must(sup.kinds.some((k: any) => k.x402Version === 2 && k.scheme === SCHEME && k.network === NETWORK), "supported");
 
 console.log("1) ham 402");
 const raw = await fetch(`${URL_}/cheap`);
@@ -80,6 +87,13 @@ console.log(`   ${paid.status}  PAYMENT-RESPONSE: ${JSON.stringify({ ...sr, extr
 must(paid.status === 200 && sr?.success === true && sr.transaction === "" && sr.network === NETWORK, "odenmis cevap");
 must(sr.payer === payer.address && sr.amount === "200000", "odeyen ve tutar");
 must(handlerCalls === 1, "isleyici bir kez calismali");
+// Istemcinin tel uzerinden gonderdigi: v2 PaymentPayload, base64 JSON
+const ps = b64json(lastSigHeader ?? null);
+console.log(`   PAYMENT-SIGNATURE: ${JSON.stringify({ x402Version: ps?.x402Version, accepted: { scheme: ps?.accepted?.scheme, amount: ps?.accepted?.amount }, payload: { type: ps?.payload?.type, voucher: { ...ps?.payload?.voucher, signature: String(ps?.payload?.voucher?.signature).slice(0, 16) + "..." } } })}`);
+must(ps?.x402Version === 2, "PAYMENT-SIGNATURE v2 olmali");
+must(ps.accepted?.scheme === "batch-settlement" && ps.accepted?.payTo === SERVICE && ps.accepted?.amount === "200000", "accepted alani");
+must(ps.payload?.type === "voucher" && ps.payload.voucher.payer === payer.address && ps.payload.voucher.recipient === SERVICE, "fis alani");
+must(/^[0-9a-f]{128}$/.test(ps.payload.voucher.signature), "ed25519 imza, 64 bayt hex");
 
 console.log("3) karsiliksiz odeyen");
 const bad = await clientFor(broke)(`${URL_}/cheap`);
@@ -110,6 +124,20 @@ const fake = await fetch(`${LEDGER}/settle`, {
 }).then((r) => r.json());
 console.log(`   ${JSON.stringify(fake)}`);
 must(fake.success === false && fake.errorReason === "wrong_hub", "baska kasa reddedilmeli");
+
+console.log("6) tekrar gonderim: ayni PAYMENT-SIGNATURE ikinci kez");
+const replay = await fetch(`${URL_}/cheap`, { headers: { "payment-signature": lastSigHeader! } });
+const rr = b64json(replay.headers.get("payment-response"));
+console.log(`   ${replay.status}  errorReason=${rr?.errorReason}`);
+must(replay.status === 402 && rr?.errorReason === "stale", "tekrar gonderim reddedilmeli");
+must(handlerCalls === 1, "isleyici CALISMAMALI");
+const ver = await fetch(`${LEDGER}/verify`, {
+  method: "POST",
+  headers: { "content-type": "application/json" },
+  body: JSON.stringify({ x402Version: 2, paymentPayload: ps, paymentRequirements: acc }),
+}).then((r) => r.json());
+console.log(`   /verify ayni yuk: ${JSON.stringify(ver)}`);
+must(ver.isValid === false && ver.invalidReason === "stale", "/verify de reddetmeli");
 
 console.log("\nX402 KONTROLU GECTI");
 srv.close();

@@ -243,7 +243,10 @@ function acceptVoucher(body: {
   };
   remember(v.payer);
   remember(v.recipient);
-  if (body.min_delta && v.cumulative - core.accepted(v.payer, v.recipient) < BigInt(body.min_delta)) {
+  // "bedelin altinda" sadece yeni bir fark varsa anlamli. Fark <= 0 ise fis eski:
+  // o durumda sebebi cekirdek soylesin (stale), tekrar gonderim oyle gorunsun.
+  const fresh = v.cumulative - core.accepted(v.payer, v.recipient);
+  if (body.min_delta && fresh > 0n && fresh < BigInt(body.min_delta)) {
     stats.refused += 1;
     emit("refused", { payer: v.payer, recipient: v.recipient, cumulative: v.cumulative, reason: "underpaid" });
     return { status: "refused", reason: "underpaid" };
