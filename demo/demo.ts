@@ -1,8 +1,8 @@
 // ADIM T - Gosteri senaryosu (plan par.5, ADIM T). Her sahne ~30 sn.
 //
 // Defter calisirken:   AUTO_SETTLE=0 npm start
-// Sonra:               node scripts/demo.ts            (butun sahneler)
-//                      node scripts/demo.ts 1 3        (sadece 1 ve 3)
+// Sonra:               node demo/demo.ts            (butun sahneler)
+//                      node demo/demo.ts 1 3        (sadece 1 ve 3)
 // Sahne 6 (gizli giris) SPP ister: spp/bin, spp/circuits ve .env'de RELAYER_SECRET.
 // Yoksa atlanir. ~3 dk surer (uc Groth16 yatirma + cekim).
 //
@@ -10,7 +10,7 @@
 
 import { Keypair } from "@stellar/stellar-sdk";
 import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, LEDGER, U, pay } from "./testnet.ts";
-import { A, voucherScVal } from "../src/chain.ts";
+import { A, voucherScVal } from "@golge-defter/sdk/chain";
 import { privateEntry, addressesIn, sppReady } from "./spp.ts";
 
 const only = process.argv.slice(2).map(Number);

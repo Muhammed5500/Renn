@@ -1,5 +1,5 @@
 // x402 v2 uyumluluk kontrolu, testnet'te. Defter AUTO_SETTLE=0 ile calisirken:
-//   node scripts/check-x402.ts
+//   node demo/check-x402.ts
 //
 // 1. Ham 402: PAYMENT-REQUIRED basligi, v2 sekli, bizim sema ve extra alanlari
 // 2. Odenen istek: PAYMENT-RESPONSE basligi, success, transaction ""
@@ -13,7 +13,7 @@ import { paymentMiddleware } from "@x402/express";
 import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
 import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NETWORK } from "../src/x402.ts";
+import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NETWORK } from "@golge-defter/sdk/x402";
 import { newAgent, track, dep, LEDGER, U } from "./testnet.ts";
 
 const must = (c: boolean, m: string) => {

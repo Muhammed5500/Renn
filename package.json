@@ -1,0 +1,13 @@
+{
+  "name": "golge-defter",
+  "private": true,
+  "type": "module",
+  "description": "Golge defter: cok taraflı anlik ajan odemeleri, Stellar testnet.",
+  "workspaces": ["sdk", "operator", "demo"],
+  "engines": { "node": ">=23.6" },
+  "scripts": {
+    "start": "npm run start -w operator",
+    "test": "npm test -w sdk -w operator",
+    "demo": "node demo/demo.ts"
+  }
+}

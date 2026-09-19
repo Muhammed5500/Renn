@@ -43,11 +43,13 @@ spendable(x) = on-chain balance - reserved withdrawals + unsettled incoming - un
 
 Every payment above goes through x402: the payer calls a paid endpoint with the official client, gets a 402, signs a voucher, and the resource server's official middleware asks the ledger (the facilitator) to settle before serving.
 
-x402 example (`ledger/examples/x402-weather.ts`): a weather API behind `@x402/express` is called ten times by an agent using `@x402/fetch`. Zero on-chain transactions per call. The service never created an account and never signed anything; it was paid by a permissionless `payout` after one batch.
+x402 example (`examples/x402-weather.ts`): a weather API behind `@x402/express` is called ten times by an agent using `@x402/fetch`. Zero on-chain transactions per call. The service never created an account and never signed anything; it was paid by a permissionless `payout` after one batch.
 
 ## Integration: the official x402 packages
 
 ```ts
+import { Agent, BatchSettlementStellarClient, BatchSettlementStellarServer } from "@golge-defter/sdk";
+
 // service
 const server = new x402ResourceServer(new HTTPFacilitatorClient({ url: LEDGER }))
   .register("stellar:testnet", new BatchSettlementStellarServer({ asset: TOKEN }));
@@ -61,7 +63,7 @@ const fetch = wrapFetchWithPayment(globalThis.fetch, client);   // plain fetch f
 
 The flow is x402's `upfront`: the middleware calls the facilitator's `/settle` before running the handler. Our `/settle` records the voucher in the ledger (spendable-balance check, operator co-signature) and returns `transaction: ""`; value moves later in a batch, as the `batch-settlement` scheme allows. If settlement fails the handler never runs and the client gets a 402 with `errorReason` in `PAYMENT-RESPONSE`. The x402 client's own `spendControls` cap what an agent will pay per request.
 
-`ledger/scripts/check-x402.ts` verifies the wire format (`PAYMENT-REQUIRED`, `PAYMENT-SIGNATURE`, `PAYMENT-RESPONSE`), refusal paths and spend controls against testnet.
+`demo/check-x402.ts` verifies the wire format (`PAYMENT-REQUIRED`, `PAYMENT-SIGNATURE`, `PAYMENT-RESPONSE`), refusal paths and spend controls against testnet.
 
 ## Trust model
 
@@ -87,12 +89,12 @@ W (known wallet) --deposit--> SPP pool --withdraw--> F (fresh address) --join, d
 - **The pool is ours.** Nethermind's pool contract, the unchanged wasm, deployed for our token with a blocklist-only policy. It shares SPP's testnet verifier and ASP contracts (`spp/deployments.json`). The vault contract did not change.
 - **The official SPP CLI, unchanged.** Groth16 proofs are generated on the agent's machine.
 - **F never holds XLM.** If W paid any of F's fees, the chain would show W → F. A relayer (operator-run, with its own key) pays every fee on F's side:
-  - `POST /relay/spp-sign` signs the SPP withdrawal as source and fee payer. The CLI reaches it through `ledger/spp-shim`, a stand-in for the `stellar` binary that handles only the alias `gd-relay` and passes everything else to the real CLI.
+  - `POST /relay/spp-sign` signs the SPP withdrawal as source and fee payer. The CLI reaches it through `sdk/spp-shim`, a stand-in for the `stellar` binary that handles only the alias `gd-relay` and passes everything else to the real CLI.
   - `POST /relay/account` opens F with 0 XLM. The relayer sponsors the reserve.
   - `POST /relay/fee-bump` pays for F's own `join` and `deposit`.
 - **The relayer signs three shapes only:** an SPP withdrawal (negative amount) with itself as source and sender, a sponsorship for a new account, and a vault `join`/`deposit` by the transaction's own source. None of them moves anyone's tokens, including its own. `check-private.ts` submits nine other shapes, and the relayer refuses all of them.
 
-`ledger/scripts/check-private.ts` on testnet: three wallets deposit 10 each, and one of them withdraws to F. A byte scan of the withdrawal and of F's three transactions finds none of the three wallets. F has 0 XLM, its sponsor is the relayer, and it pays over x402 like any other agent.
+`demo/check-private.ts` on testnet: three wallets deposit 10 each, and one of them withdraws to F. A byte scan of the withdrawal and of F's three transactions finds none of the three wallets. F has 0 XLM, its sponsor is the relayer, and it pays over x402 like any other agent.
 
 What this hides and what it doesn't:
 
@@ -122,24 +124,34 @@ The ledger sends a batch on whichever trigger fires first (`AUTO_SETTLE=1`, the 
 | Recipient value | 100 units owed to one recipient | `MAX_RECIPIENT_UNSETTLED` | Large payments reach the chain without waiting |
 | Exit | a payer calls `exit_start` | always on | The payer's vouchers must settle before the escape hatch opens |
 
-A trigger settles only what was accepted before it fired; vouchers arriving while a batch is in flight wait for their own trigger. Each batch records its reason (visible in `/state` and on the dashboard). `ledger/scripts/check-triggers.ts` verifies capacity, recipient and total triggers on testnet. Demo mode (`AUTO_SETTLE=0`) sends batches only on `/flush`, exit and withdrawals of incoming money.
+A trigger settles only what was accepted before it fired; vouchers arriving while a batch is in flight wait for their own trigger. Each batch records its reason (visible in `/state` and on the dashboard). `demo/check-triggers.ts` verifies capacity, recipient and total triggers on testnet. Demo mode (`AUTO_SETTLE=0`) sends batches only on `/flush`, exit and withdrawals of incoming money.
 
 Rough cost for 20 pairs that pay each other continuously, from the measured 0.0009 XLM per pair per batch: about 52 XLM/day at 30 s, 5 XLM/day at 5 min, 0.4 XLM/day at 1 h.
 
 ## Layout
 
+Three packages (npm workspaces). An agent or a paid service needs only the SDK; the operator code is separate.
+
 ```
-contracts/hub      Soroban vault: join, deposit, settle_one, settle_batch (netting), withdrawals
-contracts/token    SEP-41 test token (Circle's testnet faucet has no API)
-ledger/src/core.ts     the ledger's rules. Pure: no network, no clock, no crypto
-ledger/src/server.ts   x402 facilitator (/supported, /verify, /settle) + batcher + chain watcher
-ledger/src/x402.ts     x402 scheme: BatchSettlementStellarServer, BatchSettlementStellarClient
-ledger/src/payload.ts  the three signed payloads, byte-identical to the contract
-ledger/src/relay.ts    relayer for private entry: /relay/spp-sign, /relay/account, /relay/fee-bump
-ledger/src/private.ts  agent side of private entry: sponsored account, fee-bumped join/deposit
-ledger/spp-shim        `stellar` stand-in so the official SPP CLI can use the remote relayer
-ledger/ui/index.html   live dashboard served by the ledger (GET /), fed by /feed and /state
-ledger/scripts         demo.ts, e2e.ts, limits.ts, spp.ts, check-*.ts
+contracts/hub          Soroban vault: join, deposit, settle_one, settle_batch (netting), withdrawals
+contracts/token        SEP-41 test token (Circle's testnet faucet has no API)
+
+sdk/                   @golge-defter/sdk: what agents and services use
+  src/agent.ts           the agent's voucher key; syncs cumulative amounts with the ledger
+  src/x402.ts            x402 scheme: BatchSettlementStellarClient (payer), BatchSettlementStellarServer (seller)
+  src/payload.ts         the three signed payloads, byte-identical to the contract
+  src/chain.ts           vault calls and reads over Soroban RPC
+  src/private.ts         private entry, agent side: sponsored account, fee-bumped join/deposit
+  spp-shim/              `stellar` stand-in so the official SPP CLI can use the remote relayer
+
+operator/              the ledger: only the operator runs this
+  src/core.ts            the ledger's rules. Pure: no network, no clock, no crypto
+  src/server.ts          x402 facilitator (/supported, /verify, /settle) + batcher + chain watcher
+  src/relay.ts           relayer for private entry: /relay/spp-sign, /relay/account, /relay/fee-bump
+  ui/index.html          live dashboard (GET /), fed by /feed and /state
+
+demo/                  testnet demo and checks. The agents here are scripted, not autonomous
+examples/              x402 weather service and an agent paying it
 spp/deployments.json   our SPP pool (RTUSD), in the SPP CLI's deployment format
 docs/                  x402 scheme binding spec
 ```
@@ -154,11 +166,11 @@ Requirements: Rust with `wasm32v1-none`, `stellar` CLI 25.2+, Node 23.6+.
 cargo test                      # 76 contract tests + 5 token tests
 stellar contract build
 
-cd ledger && npm install
-npm test                        # 29 ledger tests, including the prefix and withdrawal properties
-AUTO_SETTLE=0 npm start         # ledger on :8787 (needs ../.env with OPERATOR_SEED; RELAYER_SECRET enables /relay)
-node scripts/demo.ts            # scenes 0-6 on testnet, every payment over x402
-node scripts/check-x402.ts      # x402 v2 wire-format and refusal checks
+npm install                     # from the repo root: sdk, operator, demo
+npm test                        # 29 tests (sdk 5, operator 24), including the prefix and withdrawal properties
+AUTO_SETTLE=0 npm start         # ledger on :8787 (needs .env with OPERATOR_SEED; RELAYER_SECRET enables /relay)
+node demo/demo.ts               # scenes 0-6 on testnet, every payment over x402
+node demo/check-x402.ts         # x402 v2 wire-format and refusal checks
 # live dashboard: http://localhost:8787
 ```
 
@@ -171,7 +183,7 @@ git clone https://github.com/NethermindEth/stellar-private-payments && cd stella
 cargo build --release -p stellar-private-payments-cli     # copy target/release/spp to spp/bin/ (tested at 10ffa0e)
 # circuits: the circuits-v0.4 release tarball of the SPP repo, unpacked into spp/circuits/;
 # spp/circuits/circuits.json holds the sha256 of each file
-node scripts/check-private.ts
+node demo/check-private.ts
 ```
 
 ## Honest notes

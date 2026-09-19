@@ -4,10 +4,10 @@
 //    fislerini kendiliginden uzlastiriyor ve o odeyeni artik kabul etmiyor.
 // 8. exit_delay dolunca odeyen parasini OPERATORSUZ cekiyor.
 //
-// Defter AUTO_SETTLE=0 ile calisirken: node scripts/check-exit.ts
+// Defter AUTO_SETTLE=0 ile calisirken: node demo/check-exit.ts
 
 import { newAgent, track, ledgerState, chain, dep, fmt, U, pay } from "./testnet.ts";
-import { A } from "../src/chain.ts";
+import { A } from "@golge-defter/sdk/chain";
 
 const must = (c: boolean, m: string) => {
   if (!c) {

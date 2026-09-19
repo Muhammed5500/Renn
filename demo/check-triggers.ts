@@ -1,7 +1,7 @@
 // Parti tetikleyicileri, testnet'te. Defteri kucuk esiklerle calistir:
 //
 //   ROUND_MS=600000 MAX_PAIRS=4 MAX_UNSETTLED=80000000 MAX_RECIPIENT_UNSETTLED=50000000 npm start
-//   node scripts/check-triggers.ts
+//   node demo/check-triggers.ts
 //
 // (sure 10 dk: bu kontrol sirasinda sure tetikleyicisi karismasin)
 //   a) kapasite:     4 farkli ciftte kucuk odemeler -> "capacity"

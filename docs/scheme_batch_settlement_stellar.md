@@ -10,11 +10,11 @@ Reference implementation:
 | Part | Path |
 |---|---|
 | Vault contract (Soroban) | `contracts/hub` |
-| Resource server scheme (`SchemeNetworkServer`) | `ledger/src/x402.ts`, `BatchSettlementStellarServer` |
-| Client scheme (`SchemeNetworkClient`) | `ledger/src/x402.ts`, `BatchSettlementStellarClient` |
-| Facilitator (`/supported`, `/verify`, `/settle`) | `ledger/src/server.ts` |
-| Signed payloads | `ledger/src/payload.ts`, byte-identical to `contracts/hub/src/voucher.rs` |
-| Compliance check | `ledger/scripts/check-x402.ts` |
+| Resource server scheme (`SchemeNetworkServer`) | `sdk/src/x402.ts`, `BatchSettlementStellarServer` |
+| Client scheme (`SchemeNetworkClient`) | `sdk/src/x402.ts`, `BatchSettlementStellarClient` |
+| Facilitator (`/supported`, `/verify`, `/settle`) | `operator/src/server.ts` |
+| Signed payloads | `sdk/src/payload.ts`, byte-identical to `contracts/hub/src/voucher.rs` |
+| Compliance check | `demo/check-x402.ts` |
 
 ## Summary
 

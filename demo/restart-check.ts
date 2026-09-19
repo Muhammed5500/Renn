@@ -1,6 +1,6 @@
 // ADIM D3 kabul kriteri: yeniden baslatilan defter ayni harcanabilir bakiyeleri uretiyor.
-// Defter calisirken: node scripts/restart-check.ts once   (odemeler, uzlasmadan)
-// Defteri yeniden baslat, sonra: node scripts/restart-check.ts sonra
+// Defter calisirken: node demo/restart-check.ts once   (odemeler, uzlasmadan)
+// Defteri yeniden baslat, sonra: node demo/restart-check.ts sonra
 import { writeFileSync, readFileSync } from "node:fs";
 import { newAgent, track, ledgerState, U, pay } from "./testnet.ts";
 

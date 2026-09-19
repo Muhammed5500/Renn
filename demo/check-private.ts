@@ -1,5 +1,5 @@
 // Gizli giris (SPP), testnet'te. Defter RELAYER_SECRET ile calisirken:
-//   node scripts/check-private.ts        (SPP CLI ve devreler spp/ altinda, bkz. spp.ts)
+//   node demo/check-private.ts        (SPP CLI ve devreler spp/ altinda, bkz. spp.ts)
 //
 // Zincirde bilinen uc cuzdan (W1, W2, W3) SPP havuzuna 10'ar yatirir. Biri
 // havuzdan taze bir F'ye 10 ceker. F relayer sayesinde 0 XLM ile hesap acar,
@@ -12,7 +12,7 @@
 //   4. Relayer sadece kendi dar islem sekillerini imzaliyor
 import { Asset, TransactionBuilder, Contract, xdr, nativeToScVal, Operation, type Account } from "@stellar/stellar-sdk";
 import { chain, dep, fmt, U, newAgent, pay, track, LEDGER } from "./testnet.ts";
-import { A } from "../src/chain.ts";
+import { A } from "@golge-defter/sdk/chain";
 import { privateEntry, addressesIn } from "./spp.ts";
 
 const must = (c: boolean, m: string) => {

@@ -3,10 +3,10 @@
 import { readFileSync } from "node:fs";
 import { Keypair, TransactionBuilder, Contract, rpc, xdr } from "@stellar/stellar-sdk";
 import { newAgent, chain, hubCfg, dep, U } from "./testnet.ts";
-import { voucherScVal, A } from "../src/chain.ts";
-import * as P from "../src/payload.ts";
+import { voucherScVal, A } from "@golge-defter/sdk/chain";
+import * as P from "@golge-defter/sdk/payload";
 
-const env = readFileSync(new URL("../../.env", import.meta.url), "utf8");
+const env = readFileSync(new URL("../.env", import.meta.url), "utf8");
 const op = P.keyFromSeed(env.match(/OPERATOR_SEED=(\w+)/)![1]);
 
 const payers = await Promise.all([1, 2, 3, 4, 5].map((i) => newAgent(`P${i}`, 1000n * U)));

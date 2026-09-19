@@ -1,0 +1,19 @@
+{
+  "name": "@golge-defter/sdk",
+  "version": "0.1.0",
+  "description": "Ajan ve servis tarafi: fis anahtari, x402 batch-settlement semasi (istemci + satici), kasa islemleri, SPP ile gizli giris.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./payload": "./src/payload.ts",
+    "./chain": "./src/chain.ts",
+    "./agent": "./src/agent.ts",
+    "./x402": "./src/x402.ts",
+    "./private": "./src/private.ts"
+  },
+  "scripts": { "test": "node --test \"test/*.test.ts\"" },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^17.1.0",
+    "@x402/core": "^2.26.0"
+  }
+}

@@ -2,8 +2,8 @@ target/
 node_modules/
 .env
 *.wasm
-ledger/*.log
-ledger/restart-snap.json
+operator/*.log
+restart-snap.json
 **/test_snapshots/
 spp/bin/
 spp/circuits/*

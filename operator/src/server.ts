@@ -18,9 +18,9 @@ import http from "node:http";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { scValToNative, xdr } from "@stellar/stellar-sdk";
 import { LedgerCore, pairKey, type Entry } from "./core.ts";
-import * as P from "./payload.ts";
-import { Chain, TESTNET, voucherScVal, A } from "./chain.ts";
-import { SCHEME, NETWORK, type VoucherPayload } from "./x402.ts";
+import * as P from "@golge-defter/sdk/payload";
+import { Chain, TESTNET, voucherScVal, A } from "@golge-defter/sdk/chain";
+import { SCHEME, NETWORK, type VoucherPayload } from "@golge-defter/sdk/x402";
 import { Relayer } from "./relay.ts";
 
 // ================= ayarlar =================

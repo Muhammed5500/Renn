@@ -6,7 +6,7 @@
 // Ortamla degistirilebilir: SPP_BIN, SPP_CIRCUITS.
 //
 // Hesaplar `stellar keys` takma adlari. Relayer'in takma adi `gd-relay`:
-// STELLAR_BIN spp-shim/'e yonlenir, o da imzayi deftere (relayer) sorar.
+// STELLAR_BIN sdk/spp-shim/'e yonlenir, o da imzayi deftere (relayer) sorar.
 
 import { execFile, execSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -16,13 +16,13 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Keypair, StrKey } from "@stellar/stellar-sdk";
 import { LEDGER, chain, mint, asTestAgent, hubCfg, fmt, U } from "./testnet.ts";
-import { A } from "../src/chain.ts";
-import { Agent } from "../src/agent.ts";
-import { openSponsored, relayedInvoke } from "../src/private.ts";
+import { A } from "@golge-defter/sdk/chain";
+import { Agent } from "@golge-defter/sdk/agent";
+import { openSponsored, relayedInvoke } from "@golge-defter/sdk/private";
 
-const ROOT = new URL("../../", import.meta.url);
+const ROOT = new URL("../", import.meta.url);
 export const sppDep = fileURLToPath(new URL("spp/deployments.json", ROOT));
-const shim = fileURLToPath(new URL(process.platform === "win32" ? "../spp-shim/stellar.cmd" : "../spp-shim/stellar", import.meta.url));
+const shim = fileURLToPath(new URL(process.platform === "win32" ? "sdk/spp-shim/stellar.cmd" : "sdk/spp-shim/stellar", ROOT));
 const localBin = fileURLToPath(new URL(`spp/bin/spp${process.platform === "win32" ? ".exe" : ""}`, ROOT));
 const localCircuits = fileURLToPath(new URL("spp/circuits", ROOT));
 const BIN = process.env.SPP_BIN ?? (existsSync(localBin) ? localBin : "spp");

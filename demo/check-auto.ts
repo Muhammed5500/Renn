@@ -2,7 +2,7 @@
 // calisirken kimse /settle cagirmadan her turda (ROUND_MS) parti gondermeli.
 //
 //   ROUND_MS=30000 npm start
-//   node scripts/check-auto.ts
+//   node demo/check-auto.ts
 
 import { newAgent, track, ledgerState, chain, U, pay } from "./testnet.ts";
 

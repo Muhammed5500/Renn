@@ -1,12 +1,12 @@
 // Cekim onayinin iki yolu, testnet'te. Defter AUTO_SETTLE=1 (varsayilan) ile:
 //   ROUND_MS=30000 npm start
-//   node scripts/check-withdraw.ts
+//   node demo/check-withdraw.ts
 //
 // 1. Kendi parasi: 20 kasada, 5 soz verildi, 15 cekiliyor -> ANINDA, parti yok.
 // 2. Gelmemis para: kasa 0, C'den 10 gelecek, 10 cekiliyor -> olagan partiyi
 //    bekliyor, cekim icin EK parti gonderilmiyor.
 import { newAgent, track, ledgerState, withdrawApproved, chain, fmt, U, pay, hubCfg, LEDGER } from "./testnet.ts";
-import * as P from "../src/payload.ts";
+import * as P from "@golge-defter/sdk/payload";
 import { networkInterfaces } from "node:os";
 
 const must = (c: boolean, m: string) => {

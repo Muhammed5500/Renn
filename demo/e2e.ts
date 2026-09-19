@@ -2,7 +2,7 @@
 // skipped bos, kasanin token bakiyesi degismedi. Arkasindan onayli cekim.
 //
 // Once defteri calistir:  AUTO_SETTLE=0 npm start
-// Sonra:                  node scripts/e2e.ts
+// Sonra:                  node demo/e2e.ts
 
 import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, U, pay } from "./testnet.ts";
 

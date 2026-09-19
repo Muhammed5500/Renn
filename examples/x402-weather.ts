@@ -13,9 +13,9 @@ import { paymentMiddleware } from "@x402/express";
 import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
 import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NETWORK } from "../src/x402.ts";
-import { newAgent, track, settleNow, ledgerState, chain, dep, fmt, LEDGER, U } from "../scripts/testnet.ts";
-import { A } from "../src/chain.ts";
+import { BatchSettlementStellarServer, BatchSettlementStellarClient, SCHEME, NETWORK } from "@golge-defter/sdk/x402";
+import { newAgent, track, settleNow, ledgerState, chain, dep, fmt, LEDGER, U } from "../demo/testnet.ts";
+import { A } from "@golge-defter/sdk/chain";
 
 // ---------------- hizmet satan taraf ----------------
 const SERVICE = Keypair.random().publicKey(); // hesap bile acilmadi
