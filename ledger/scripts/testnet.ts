@@ -128,9 +128,19 @@ export async function newAgent(
     await chain.invoke(kp, "join", [A.addr(kp.publicKey()), A.bytes(agent.commitmentKey)]);
   }
   if (deposit > 0n) {
-    await asDeployer(() => chain.invoke(deployer, "mint", [A.addr(kp.publicKey()), A.i128(deposit)], dep.token));
+    await mint(kp.publicKey(), deposit);
     await chain.invoke(kp, "deposit", [A.addr(kp.publicKey()), A.i128(deposit)]);
   }
+  return asTestAgent(name, kp, agent);
+}
+
+/** Test token'i bas (deployer sirasiyla). */
+export function mint(to: string, amount: bigint) {
+  return asDeployer(() => chain.invoke(deployer, "mint", [A.addr(to), A.i128(amount)], dep.token));
+}
+
+/** Var olan hesap ve fis anahtarindan x402 ile odeyebilen ajan. */
+export function asTestAgent(name: string, kp: Keypair, agent: Agent): TestAgent {
   const client = new x402Client()
     .register(NETWORK, new BatchSettlementStellarClient(agent))
     // demo ajanlari icin bu token'a istek basina ust sinir yok

@@ -3,12 +3,15 @@
 // Defter calisirken:   AUTO_SETTLE=0 npm start
 // Sonra:               node scripts/demo.ts            (butun sahneler)
 //                      node scripts/demo.ts 1 3        (sadece 1 ve 3)
+// Sahne 6 (gizli giris) SPP ister: SPP_BIN, SPP_CIRCUITS ve .env'de RELAYER_SECRET.
+// Yoksa atlanir. ~3 dk surer (uc Groth16 yatirma + cekim).
 //
 // Her sayi calisan sistemden geliyor: defterin /state'i ve zincir okumalari.
 
 import { Keypair } from "@stellar/stellar-sdk";
 import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, LEDGER, U, pay } from "./testnet.ts";
 import { A, voucherScVal } from "../src/chain.ts";
+import { privateEntry, addressesIn } from "./spp.ts";
 
 const only = process.argv.slice(2).map(Number);
 const want = (n: number) => only.length === 0 || only.includes(n);
@@ -148,6 +151,26 @@ if (want(5)) {
   const ex = await chain.invoke(payer.kp, "exit_start", [A.addr(payer.address)]);
   console.log(`  ${payer.name} kacis yolunu baslatti (exit_start): ${tx(ex.hash)}`);
   console.log(`  ${dep.exit_delay} ledger (~5 dk) sonra operatorsuz cekebilir.`);
+}
+
+// ================= SAHNE 6 (SPP varsa) =================
+if (want(6)) {
+  scene(6, "GIZLI GIRIS", "Kasaya kim girdi, zincirden bilinmiyor.");
+  if (!process.env.SPP_CIRCUITS) {
+    console.log("  SPP_CIRCUITS ayarli degil, atlandi.");
+  } else {
+    const pe = await privateEntry(10n, 3, (s) => console.log(s));
+    await track([pe.f.address], { [pe.f.address]: "F (gizli)" });
+    const r = await pay(pe.f, services[3], U);
+    console.log(`  F x402 ile servis-4'e 1 odedi: ${r.status === "accepted" ? "kabul" : "RET " + (r as any).reason}`);
+    let traces = 0;
+    for (const h of Object.values(pe.txs)) traces += (await addressesIn(h, pe.ws)).length;
+    const acct = (await fetch(`https://horizon-testnet.stellar.org/accounts/${pe.f.address}`).then((x) => x.json())) as any;
+    const xlm = acct.balances.find((b: any) => b.asset_type === "native").balance;
+    console.log(`  F'nin ${Object.keys(pe.txs).length} isleminde W adresi: ${traces === 0 ? "YOK" : traces}   F'nin XLM'i: ${xlm}`);
+    console.log("  zincirde gorunen: uc cuzdan 10'ar yatirdi, F 10 aldi. F hangisi? Bilinmiyor.");
+    console.log("  acik kalan: tutar ve zaman. Ayni tutari yatiran kalabalik buyudukce gizlilik artar.");
+  }
 }
 
 console.log(`\n${line}\n kasa: https://stellar.expert/explorer/testnet/contract/${dep.hub}\n${line}`);
