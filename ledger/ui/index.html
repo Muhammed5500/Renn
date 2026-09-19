@@ -268,7 +268,7 @@ function connect() {
   es.addEventListener("batch_failed", (m) => addEvent(`<span class="badge bad">parti başarısız</span> ${esc(JSON.parse(m.data).error).slice(0, 120)}`));
   es.addEventListener("exit_seen", (m) => addEvent(`<span class="badge warn">çıkış</span> ${esc(name(JSON.parse(m.data).who))}: kabul kesildi, hemen uzlaşılıyor`));
   es.addEventListener("withdraw_reserved", (m) => { const e = JSON.parse(m.data); addEvent(`çekim isteği · ${esc(name(e.who))} ${fmt(e.amount)} ayrıldı`); });
-  es.addEventListener("withdraw_approved", (m) => { const e = JSON.parse(m.data); addEvent(`<span class="badge ok">çekim onayı</span> ${esc(name(e.who))} ${fmt(e.amount)}`); });
+  es.addEventListener("withdraw_approved", (m) => { const e = JSON.parse(m.data); addEvent(`<span class="badge ok">çekim onayı</span> ${esc(name(e.who))} ${fmt(e.amount)} · ${e.path === "direct" ? "anında, parti yok" : "gelen para partiyle düştü"}`); });
 }
 
 poll();

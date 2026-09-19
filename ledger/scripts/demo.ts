@@ -118,10 +118,11 @@ if (want(4)) {
   const before = await chain.tokenBalance(deniz.address);
   const t = Date.now();
   const w = await withdrawApproved(deniz, 20n * U);
-  console.log(`  Deniz 20 cekiyor: defter bekleyen fisi uzlastirdi, onay verdi`);
+  console.log(`  Deniz 20 cekiyor: ${w.path === "direct" ? "kasasindaki 50'nin 3'u soz verildi, 20 serbest -> ANINDA onay, parti yok" : "onay parti sonrasi"}`);
   console.log(`  cekim: ${tx(w.hash)}`);
   console.log(`  cuzdan: ${fmt(before)} -> ${fmt(await chain.tokenBalance(deniz.address))}   (${Math.round((Date.now() - t) / 1000)} sn, exit_start yok)`);
-  console.log(`  kasada kalan: ${fmt(await chain.balanceOf(deniz.address))}   (50 - 3 - 20)`);
+  const dv = await view(deniz.address);
+  console.log(`  kasada ${fmt(await chain.balanceOf(deniz.address))}: harcanabilir ${fmt(dv.spendable)} + servise soz verilen ${fmt(dv.pendingOut)} (olagan partide odenecek)`);
 }
 
 // ================= SAHNE 5 (opsiyonel) =================

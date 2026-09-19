@@ -26,6 +26,7 @@ spendable(x) = on-chain balance - reserved withdrawals + unsettled incoming - un
 - Every accepted voucher carries two signatures: the payer's and the ledger operator's. The contract checks both, so the ledger cannot be bypassed.
 - The ledger sends **prefixes of its acceptance order** as batches. Every prefix is solvent by construction, so on-chain netting never has to drop anyone.
 - Settlement moves internal balances only. **No token moves during settlement.**
+- Withdrawals need no batch when they are covered by the agent's own on-chain balance minus its unsettled promises. Only money that is still incoming (unsettled vouchers paid *to* the agent) waits for the next regular batch. A withdrawal never adds a settlement transaction.
 
 ## Demo (testnet, real transactions)
 
@@ -34,7 +35,7 @@ spendable(x) = on-chain balance - reserved withdrawals + unsettled incoming - un
 | 1. Circular debt | A holds 20. A→B 100, B→C 90, C→A 80 in small alternating payments | 270 payments, **1 transaction**, vault token balance unchanged. [tx](https://stellar.expert/explorer/testnet/tx/2c200bd0a12907b81c168ead50a4a5983d8efeaffdd319463e1d28d6b128badb) |
 | 2. Scale | 5 payers, 25 services, 600 payments | 600 payments accepted in 1.6-4 s over local HTTP, **1 transaction**. [tx](https://stellar.expert/explorer/testnet/tx/b9b67f786308758ce03f688a48ad5b5f4c5e87cdb3f763b99c648861e9071a31) |
 | 3. Bounced cheque | Empty payer tries to pay. A payer tries to promise the same 10 twice | Both refused instantly: `insufficient_spendable` |
-| 4. Withdrawal | An agent with 50 pays 3, then withdraws 20 | The ledger settles the pending voucher and approves. Tokens in the wallet in ~15 s, no exit delay. [tx](https://stellar.expert/explorer/testnet/tx/172626940be8488a09a4e7e8895424dcfd3b394dff8dcd774f82e922cf42689d) |
+| 4. Withdrawal | An agent with 50 pays 3, then withdraws 20 | Approved instantly, **no batch**: 3 of the 50 are promised, 20 are free. Tokens in the wallet in 4-8 s, no exit delay. [tx](https://stellar.expert/explorer/testnet/tx/d403dbcc366ec35f1e5169b8aedb30673881b53510764eb473458339b254e5f6) |
 | 5. Operator down | A recipient settles its own accepted voucher without the ledger. A payer starts the escape hatch | [settle_one](https://stellar.expert/explorer/testnet/tx/bde1f1dadc08c4ff4a5d27204b450b7c4ef577b9efe16f2009b437e048ae4814), [exit_start](https://stellar.expert/explorer/testnet/tx/0d1ee7595d0a267b0764fdc0856113080227dd1092509467a9961cccd2e0d725) |
 
 HTTP example (`ledger/examples/two-agents.ts`): an agent calls a weather API ten times with a plain `fetch`, each call paid by voucher, zero on-chain transactions. The service never created an account and never signed anything. It was paid by a permissionless `payout` after one batch. [batch](https://stellar.expert/explorer/testnet/tx/0c4b0b392b75bb665521e21e2dfb72c33796dc597821557a2c8196693f08b5b8)
@@ -96,7 +97,7 @@ cargo test                      # 76 contract tests + 5 token tests
 stellar contract build
 
 cd ledger && npm install
-npm test                        # 22 ledger tests, including the prefix property
+npm test                        # 26 ledger tests, including the prefix and withdrawal properties
 AUTO_SETTLE=0 npm start         # ledger on :8787 (needs ../.env with OPERATOR_SEED)
 node scripts/demo.ts            # scenes 0-5 on testnet
 # live dashboard: http://localhost:8787
