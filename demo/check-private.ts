@@ -12,7 +12,7 @@
 //   4. The relayer signs only its own narrow transaction shapes
 import { Asset, TransactionBuilder, Contract, xdr, nativeToScVal, Operation, type Account } from "@stellar/stellar-sdk";
 import { chain, dep, fmt, U, newAgent, pay, track, LEDGER } from "./testnet.ts";
-import { A } from "renn/chain";
+import { A } from "rennpay/chain";
 import { privateEntry, addressesIn } from "./spp.ts";
 
 const must = (c: boolean, m: string) => {

@@ -6,6 +6,8 @@ Built for the Rise In x Stellar Pro Hackathon, Istanbul, 19-20 September 2026. R
 
 **A real x402 v2 scheme.** `batch-settlement` on `stellar:testnet`, used through the official `@x402/express`, `@x402/fetch` and `@x402/core` packages. Every payment in the demo is a full x402 round trip. Binding spec: [`docs/scheme_batch_settlement_stellar.md`](docs/scheme_batch_settlement_stellar.md).
 
+The agent SDK is on npm: [`rennpay`](https://www.npmjs.com/package/rennpay) (`npm install rennpay`).
+
 ## The problem
 
 In an agent economy every agent is both a payer and a payee. Today's rails give two options:
@@ -48,7 +50,7 @@ x402 example (`examples/x402-weather.ts`): a weather API behind `@x402/express` 
 ## Integration: the official x402 packages
 
 ```ts
-import { Agent, BatchSettlementStellarClient, BatchSettlementStellarServer } from "renn";
+import { Agent, BatchSettlementStellarClient, BatchSettlementStellarServer } from "rennpay";
 
 // service
 const server = new x402ResourceServer(new HTTPFacilitatorClient({ url: LEDGER }))
@@ -97,7 +99,7 @@ W (known wallet) --deposit--> SPP pool --withdraw--> F (fresh address) --join, d
 From the SDK it is one call:
 
 ```ts
-import { SppCli, privateOnboard, Chain, TESTNET } from "renn";
+import { SppCli, privateOnboard, Chain, TESTNET } from "rennpay";
 
 const chain = new Chain({ ...TESTNET, hub: VAULT, token: TOKEN }, ANY_FUNDED_ACCOUNT);   // reads simulate from this account
 const spp = new SppCli({ bin: "spp", circuits: "./circuits", deployment: "spp/deployments.json", relayUrl: LEDGER });
@@ -149,7 +151,7 @@ Three packages (npm workspaces). An agent or a paid service needs only the SDK; 
 contracts/hub          Soroban vault: join, deposit, settle_one, settle_batch (netting), withdrawals
 contracts/token        SEP-41 test token (Circle's testnet faucet has no API)
 
-sdk/                   renn: what agents and services use
+sdk/                   rennpay (npm): what agents and services use
   src/agent.ts           the agent's voucher key; syncs cumulative amounts with the ledger
   src/x402.ts            x402 scheme: BatchSettlementStellarClient (payer), BatchSettlementStellarServer (seller)
   src/payload.ts         the three signed payloads, byte-identical to the contract

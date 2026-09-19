@@ -6,7 +6,7 @@
 // 2. Money not yet in: vault 0, 10 coming from C, 10 withdrawn -> waits for the
 //    regular batch, no EXTRA batch is sent for the withdrawal.
 import { newAgent, track, ledgerState, withdrawApproved, chain, fmt, U, pay, hubCfg, LEDGER } from "./testnet.ts";
-import * as P from "renn/payload";
+import * as P from "rennpay/payload";
 import { networkInterfaces } from "node:os";
 
 const must = (c: boolean, m: string) => {

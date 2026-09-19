@@ -5,12 +5,12 @@
   "description": "Testnet demo and check scripts. The agents here are scripted, not autonomous.",
   "type": "module",
   "dependencies": {
-    "renn": "0.1.0",
     "@stellar/stellar-sdk": "^17.1.0",
     "@x402/core": "^2.26.0",
     "@x402/express": "^2.26.0",
     "@x402/fetch": "^2.26.0",
-    "express": "^4.22.3"
+    "express": "^4.22.3",
+    "rennpay": "0.1.0"
   },
   "license": "MIT"
 }

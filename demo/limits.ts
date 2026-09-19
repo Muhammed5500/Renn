@@ -3,8 +3,8 @@
 import { readFileSync } from "node:fs";
 import { Keypair, TransactionBuilder, Contract, rpc, xdr } from "@stellar/stellar-sdk";
 import { newAgent, chain, hubCfg, dep, U } from "./testnet.ts";
-import { voucherScVal, A } from "renn/chain";
-import * as P from "renn/payload";
+import { voucherScVal, A } from "rennpay/chain";
+import * as P from "rennpay/payload";
 
 const env = readFileSync(new URL("../.env", import.meta.url), "utf8");
 const op = P.keyFromSeed(env.match(/OPERATOR_SEED=(\w+)/)![1]);

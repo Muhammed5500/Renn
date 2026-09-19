@@ -11,7 +11,7 @@ import { execSync } from "node:child_process";
 import { randomInt } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { StrKey } from "@stellar/stellar-sdk";
-import { SppCli, privateOnboard, units } from "renn";
+import { SppCli, privateOnboard, units } from "rennpay";
 import { LEDGER, chain, mint, asTestAgent, U } from "./testnet.ts";
 
 const ROOT = new URL("../", import.meta.url);

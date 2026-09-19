@@ -1,4 +1,4 @@
-# renn
+# rennpay
 
 Agent-side SDK for [Renn](https://github.com/Muhammed5500/Renn): instant many-to-many agent payments on Stellar, settled in one transaction.
 
@@ -7,13 +7,13 @@ Agents deposit a SEP-41 token into a Soroban vault and pay each other with off-c
 Testnet only, not audited. Protocol details are in the [repository README](https://github.com/Muhammed5500/Renn#readme).
 
 ```bash
-npm install renn
+npm install rennpay
 ```
 
 ## Pay for a service
 
 ```ts
-import { Agent, Chain, TESTNET, BatchSettlementStellarClient } from "renn";
+import { Agent, Chain, TESTNET, BatchSettlementStellarClient } from "rennpay";
 import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
 
@@ -31,7 +31,7 @@ const res = await fetch("https://some-service.example/weather");
 Before paying, the agent joins the vault once and deposits:
 
 ```ts
-import { A } from "renn/chain";
+import { A } from "rennpay/chain";
 await chain.invoke(keypair, "join", [A.addr(MY_ADDRESS), A.bytes(agent.commitmentKey)]);
 await chain.invoke(keypair, "deposit", [A.addr(MY_ADDRESS), A.i128(100_000_000n)]);
 ```
@@ -39,7 +39,7 @@ await chain.invoke(keypair, "deposit", [A.addr(MY_ADDRESS), A.i128(100_000_000n)
 ## Sell a service
 
 ```ts
-import { BatchSettlementStellarServer } from "renn";
+import { BatchSettlementStellarServer } from "rennpay";
 import { x402ResourceServer, HTTPFacilitatorClient } from "@x402/core/server";
 import { paymentMiddleware } from "@x402/express";
 
@@ -57,7 +57,7 @@ A seller needs no account and signs nothing. It can withdraw its balance, or any
 Vault deposits are public: the chain shows which wallet funded which vault address. `privateOnboard()` enters the vault through a [Stellar Private Payments](https://github.com/NethermindEth/stellar-private-payments) pool, so the vault address cannot be linked to the funding wallet.
 
 ```ts
-import { SppCli, privateOnboard } from "renn";
+import { SppCli, privateOnboard } from "rennpay";
 
 const spp = new SppCli({ bin: "spp", circuits: "./circuits", deployment: "./spp-deployments.json", relayUrl: LEDGER });
 const f = await privateOnboard({ spp, wallet: "my-stellar-keys-alias", amount: 100_000_000n, chain, ledgerUrl: LEDGER });
@@ -70,12 +70,12 @@ This needs the official SPP CLI and its circuit artifacts installed separately; 
 
 | Import | What |
 |---|---|
-| `renn` | everything below |
-| `renn/agent` | `Agent`: the voucher key, cumulative amounts per recipient |
-| `renn/x402` | `BatchSettlementStellarClient`, `BatchSettlementStellarServer`, `SCHEME`, `NETWORK` |
-| `renn/chain` | `Chain`, `TESTNET`, `A` (ScVal helpers), `voucherScVal` |
-| `renn/payload` | the three signed payloads, byte-identical to the contract |
-| `renn/private` | `privateOnboard`, `openSponsored`, `relayedInvoke` |
-| `renn/spp` | `SppCli`, `units` |
+| `rennpay` | everything below |
+| `rennpay/agent` | `Agent`: the voucher key, cumulative amounts per recipient |
+| `rennpay/x402` | `BatchSettlementStellarClient`, `BatchSettlementStellarServer`, `SCHEME`, `NETWORK` |
+| `rennpay/chain` | `Chain`, `TESTNET`, `A` (ScVal helpers), `voucherScVal` |
+| `rennpay/payload` | the three signed payloads, byte-identical to the contract |
+| `rennpay/private` | `privateOnboard`, `openSponsored`, `relayedInvoke` |
+| `rennpay/spp` | `SppCli`, `units` |
 
 MIT

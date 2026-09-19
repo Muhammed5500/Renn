@@ -10,7 +10,7 @@
 
 import { Keypair } from "@stellar/stellar-sdk";
 import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, LEDGER, U, pay } from "./testnet.ts";
-import { A, voucherScVal } from "renn/chain";
+import { A, voucherScVal } from "rennpay/chain";
 import { privateEntry, addressesIn, sppReady } from "./spp.ts";
 
 const only = process.argv.slice(2).map(Number);

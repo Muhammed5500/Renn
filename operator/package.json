@@ -9,8 +9,8 @@
     "test": "node --test \"test/*.test.ts\""
   },
   "dependencies": {
-    "renn": "0.1.0",
-    "@stellar/stellar-sdk": "^17.1.0"
+    "@stellar/stellar-sdk": "^17.1.0",
+    "rennpay": "0.1.0"
   },
   "license": "MIT"
 }

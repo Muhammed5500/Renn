@@ -7,7 +7,7 @@
 // With the ledger running with AUTO_SETTLE=0: node demo/check-exit.ts
 
 import { newAgent, track, ledgerState, chain, dep, fmt, U, pay } from "./testnet.ts";
-import { A } from "renn/chain";
+import { A } from "rennpay/chain";
 
 const must = (c: boolean, m: string) => {
   if (!c) {

@@ -12,10 +12,10 @@
     "node": ">=23.6"
   },
   "scripts": {
-    "build": "npm run build -w renn",
-    "start": "npm run build -w renn && npm run start -w operator",
-    "test": "npm run build -w renn && npm test -w renn -w operator",
-    "demo": "npm run build -w renn && node demo/demo.ts"
+    "build": "npm run build -w rennpay",
+    "start": "npm run build -w rennpay && npm run start -w operator",
+    "test": "npm run build -w rennpay && npm test -w rennpay -w operator",
+    "demo": "npm run build -w rennpay && node demo/demo.ts"
   },
   "license": "MIT",
   "devDependencies": {

@@ -18,9 +18,9 @@ import http from "node:http";
 import { appendFileSync, existsSync, readFileSync } from "node:fs";
 import { scValToNative, xdr } from "@stellar/stellar-sdk";
 import { LedgerCore, pairKey, type Entry } from "./core.ts";
-import * as P from "renn/payload";
-import { Chain, TESTNET, voucherScVal, A } from "renn/chain";
-import { SCHEME, NETWORK, type VoucherPayload } from "renn/x402";
+import * as P from "rennpay/payload";
+import { Chain, TESTNET, voucherScVal, A } from "rennpay/chain";
+import { SCHEME, NETWORK, type VoucherPayload } from "rennpay/x402";
 import { Relayer } from "./relay.ts";
 
 // ================= settings =================
