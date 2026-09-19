@@ -173,6 +173,7 @@ async function flushOnce(): Promise<boolean> {
       xdr.ScVal.scvVec(b.items.map(voucherScVal)),
     ]);
     core.batchSettled();
+    batchDone();
     stats.batches += 1;
     stats.lastBatchTx = res.hash;
     const out = scValToNative(res.ret!) as {
@@ -203,6 +204,7 @@ async function flushOnce(): Promise<boolean> {
     return true;
   } catch (err) {
     core.batchFailed();
+    batchDone();
     emit("batch_failed", { error: String(err) });
     console.error("parti basarisiz:", err);
     return false;
@@ -292,19 +294,64 @@ function stateView() {
   };
 }
 
+/** Bir sonraki parti denemesi bitince cozulur (basarili ya da degil). */
+let batchWaiters: (() => void)[] = [];
+function nextBatch(timeoutMs: number): Promise<void> {
+  return new Promise((ok) => {
+    const t = setTimeout(ok, timeoutMs);
+    batchWaiters.push(() => {
+      clearTimeout(t);
+      ok();
+    });
+  });
+}
+function batchDone() {
+  const w = batchWaiters;
+  batchWaiters = [];
+  for (const f of w) f();
+}
+
+/**
+ * Cekim onayi (plan par.3.6, v3.3.1).
+ *
+ *   - Ajanin zincirdeki kendi parasindan karsilaniyorsa: ANINDA, parti yok.
+ *     Verdigi fisler kasada kalan paradan sonra odenir.
+ *   - Bir kismi henuz gelmemis paradan (uzlasmamis gelen fisler) olusuyorsa:
+ *     o para zincirde hala odeyenin bakiyesinde. Olagan partiyi bekle, sonra
+ *     imzala. Cekim yuzunden EK ISLEM YOK.
+ *   - AUTO_SETTLE kapaliysa (demo) olagan parti yok: partiyi hemen gonder.
+ */
 async function approveWithdraw(body: { who: string; amount: string }) {
+  const who = body.who;
   const amount = BigInt(body.amount);
   const validUntil = latestLedger + 60;
-  const err = core.reserve(body.who, amount, validUntil);
+  const err = core.reserve(who, amount, validUntil);
   if (err) return { status: "refused", reason: err };
-  log({ t: "reserve", who: body.who, amount, validUntil });
-  emit("withdraw_reserved", { who: body.who, amount });
-  // Once x'in dahil oldugu her seyi uzlastir: zincir bakiyesi harcanabilire esitlenir.
-  await flushUpTo(core.seq);
-  const nonce = await chain.withdrawNonceOf(body.who);
-  const sig = P.signHex(opKp, P.withdrawHash(hubCfg, body.who, amount, nonce, validUntil));
-  emit("withdraw_approved", { who: body.who, amount, nonce, validUntil });
-  return { status: "approved", amount, nonce, valid_until: validUntil, op_sig: sig };
+  log({ t: "reserve", who, amount, validUntil });
+  emit("withdraw_reserved", { who, amount });
+
+  let path = "direct";
+  if (!core.canApprove(who)) {
+    path = "after_batch";
+    if (AUTO_SETTLE) {
+      const deadline = Date.now() + ROUND_MS * 2 + 30_000;
+      while (!core.canApprove(who) && Date.now() < deadline) {
+        await nextBatch(deadline - Date.now());
+      }
+    } else {
+      await flushUpTo(core.seq);
+    }
+    if (!core.canApprove(who)) {
+      core.release(who, amount);
+      log({ t: "release", who, amount, validUntil });
+      return { status: "refused", reason: "not_settled_yet" };
+    }
+  }
+
+  const nonce = await chain.withdrawNonceOf(who);
+  const sig = P.signHex(opKp, P.withdrawHash(hubCfg, who, amount, nonce, validUntil));
+  emit("withdraw_approved", { who, amount, nonce, validUntil, path });
+  return { status: "approved", amount, nonce, valid_until: validUntil, op_sig: sig, path };
 }
 
 // ================= HTTP =================
@@ -415,6 +462,7 @@ async function boot() {
       if (r.t === "reserve" && r.validUntil >= latestLedger) {
         core.reserve(r.who, BigInt(r.amount), r.validUntil);
       }
+      if (r.t === "release") core.release(r.who, BigInt(r.amount));
     }
     for (const a of addrs) known.add(a);
     console.log(`log oynatildi: seq ${core.seq}, uzlasmamis ${core.entries.length}`);

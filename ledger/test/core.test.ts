@@ -213,6 +213,111 @@ test("cekim_gerceklesti: bakiye ve ayirma birlikte duser", () => {
   assert.equal(l.reservations.length, 0);
 });
 
+test("cekim_partisiz: kendi parasi hemen onaylanir", () => {
+  // Kasada 20, Mehmet'e 5 soz verdi (uzlasmadi). 15 serbest.
+  const l = world({ A: 20n * U, M: 0n });
+  pay(l, "A", "M", 5n * U);
+  assert.equal(l.withdrawableNow("A"), 15n * U);
+  assert.equal(l.reserve("A", 15n * U, 2000), null);
+  assert.equal(l.canApprove("A"), true, "parti gerekmiyor");
+  assert.equal(l.reserve("A", 1n, 2000), "insufficient_spendable", "15'ten fazlasi yok");
+  // cekim zincirde gerceklesti: kasada 5 kaldi, Mehmet'in fisi hala odenebilir
+  l.withdrawn("A", 15n * U);
+  const b = l.cutBatch(100)!;
+  assert.equal(contractSkips(l.balances, b.items, (x, y) => l.paid(x, y)).size, 0);
+});
+
+test("cekim_gelen_para: gelmemis para icin olagan parti beklenir", () => {
+  // A'nin kasasi 0, C ona 10 soz verdi. Harcanabilir 10, ama zincirde 0.
+  const l = world({ A: 0n, C: 10n * U });
+  pay(l, "C", "A", 10n * U);
+  assert.equal(l.spendable("A"), 10n * U);
+  assert.equal(l.withdrawableNow("A"), 0n);
+  assert.equal(l.reserve("A", 10n * U, 2000), null, "ayrilabilir");
+  assert.equal(l.canApprove("A"), false, "henuz imzalanamaz");
+  assert.equal(reason(pay(l, "A", "C", 1n)), "insufficient_spendable", "ayrilan para harcanamaz");
+  l.markInflight(l.cutBatch(100)!);
+  l.batchSettled();
+  assert.equal(l.canApprove("A"), true, "olagan partiden sonra imzalanabilir");
+});
+
+test("cekim_karisik: 20 kasada, 5 giden, 10 gelen", () => {
+  const l = world({ A: 20n * U, M: 0n, C: 10n * U });
+  pay(l, "A", "M", 5n * U);
+  pay(l, "C", "A", 10n * U);
+  assert.equal(l.spendable("A"), 25n * U);
+  assert.equal(l.withdrawableNow("A"), 15n * U, "Can'in 10'u henuz hesapta degil");
+  l.reserve("A", 25n * U, 2000);
+  assert.equal(l.canApprove("A"), false);
+});
+
+test("cekim_ozelligi: partisiz ve parti bekleyen cekimler kontrata kimseyi eletmiyor", () => {
+  const agents = ["A", "B", "C", "D", "E"];
+  const r = rng(99);
+  const start: Record<string, bigint> = {};
+  for (const x of agents) start[x] = BigInt(20 + Math.floor(r() * 30)) * U;
+  const l = world(start);
+  const waiting: { who: string; amt: bigint }[] = [];
+  let direct = 0;
+  let afterBatch = 0;
+  let batches = 0;
+
+  // Sunucunun kurali: onay ancak canApprove dogruyken imzalanir. Imzalanan
+  // cekim zincirde gerceklesir; kontrat amount <= bakiye ister.
+  const execute = (who: string, amt: bigint) => {
+    assert.ok(l.balance(who) >= amt, `${who}: kontrat ExceedsBalance verirdi`);
+    l.withdrawn(who, amt);
+  };
+
+  for (let i = 0; i < 6000; i++) {
+    const p = agents[Math.floor(r() * 5)];
+    let q = agents[Math.floor(r() * 5)];
+    if (q === p) q = agents[(agents.indexOf(p) + 1) % 5];
+    const roll = r();
+    if (roll < 0.05) {
+      // para yatirma (Deposited olayi): cekimler sistemi bosaltmasin
+      l.deposited(p, BigInt(5 + Math.floor(r() * 20)) * U);
+    } else if (roll < 0.25) {
+      // bazen tam sinir (withdrawableNow), bazen harcanabilirin tamami, bazen rastgele
+      const k = r();
+      const amt = k < 0.4 ? l.withdrawableNow(p) : k < 0.7 ? l.spendable(p) : BigInt(1 + Math.floor(r() * 5)) * U;
+      if (amt <= 0n || l.reserve(p, amt, 1e9) !== null) continue;
+      if (l.canApprove(p)) {
+        execute(p, amt);
+        direct++;
+      } else {
+        waiting.push({ who: p, amt });
+      }
+    } else if (roll < 0.4) {
+      const b = l.cutBatch(1 + Math.floor(r() * 6));
+      if (!b) continue;
+      const skipped = contractSkips(l.balances, b.items, (x, y) => l.paid(x, y));
+      assert.equal(skipped.size, 0, `islem ${i}: kontrat ${[...skipped]} eleyecekti`);
+      l.markInflight(b);
+      l.batchSettled();
+      batches++;
+      // olagan partiden sonra bekleyen onaylar
+      for (let j = waiting.length - 1; j >= 0; j--) {
+        const w = waiting[j];
+        if (l.canApprove(w.who)) {
+          execute(w.who, w.amt);
+          waiting.splice(j, 1);
+          afterBatch++;
+        }
+      }
+    } else {
+      pay(l, p, q, BigInt(1 + Math.floor(r() * 6)) * U);
+    }
+    for (const x of agents) {
+      assert.ok(l.spendable(x) >= 0n);
+      assert.ok(l.balance(x) >= 0n, `${x} zincir bakiyesi eksi`);
+    }
+  }
+  assert.ok(direct > 20, `partisiz cekim sayisi (${direct})`);
+  assert.ok(afterBatch > 10, `parti sonrasi cekim sayisi (${afterBatch})`);
+  assert.ok(batches > 30, `parti sayisi (${batches})`);
+});
+
 // ================= ONEK OZELLIGI (ASLA GEVSETME) =================
 
 /** Tekrarlanabilir rastgelelik. */

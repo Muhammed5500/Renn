@@ -281,8 +281,11 @@ export class LedgerCore {
 
   /**
    * Cekim icin para ayirir. Bu andan itibaren yeni fisler bu parayi
-   * harcayamaz. Sunucu sonra x'in fislerini kapsayan parti gonderir,
-   * onaydan sonra imzalar.
+   * harcayamaz. Harcanabilir bakiyenin icindeki her tutar ayrilabilir.
+   *
+   * Ayirmadan sonra canApprove() dogruysa sunucu onayi HEMEN imzalar (yaygin
+   * durum, parti yok). Degilse cekimin bir kismi henuz gelmemis paradan
+   * olusuyor: sunucu olagan partiyi bekler, sonra imzalar.
    */
   reserve(who: Addr, amount: bigint, validUntil: number): Refusal | null {
     if (!this.signers.has(who)) return "not_joined";
@@ -290,6 +293,33 @@ export class LedgerCore {
     if (this.spendable(who) < amount) return "insufficient_spendable";
     this.reservations.push({ who, amount, validUntil });
     return null;
+  }
+
+  /**
+   * Partisiz, SIMDI cekilebilecek tutar: zincirdeki bakiye eksi verdigi ama
+   * uzlasmamis fisler eksi ayrilmis cekimler. Gelmesi beklenen para (gelen
+   * fisler) SAYILMAZ: o para zincirde hala odeyenin bakiyesinde duruyor.
+   *
+   * Bu tutara kadar cekim guvenli: cekimden sonra kasada en az verdigi
+   * fislerin toplami kaliyor, o fisler hangi partiye girerse girsin odenir.
+   */
+  withdrawableNow(x: Addr): bigint {
+    const w = this.balance(x) - this.reserved(x) - this.pending(x).out;
+    return w > 0n ? w : 0n;
+  }
+
+  /**
+   * x'in ayrilmis cekimlerinin hepsi zincirdeki bakiyesiyle karsilaniyor mu.
+   * Evetse operator onayi PARTI BEKLEMEDEN imzalanabilir.
+   */
+  canApprove(x: Addr): boolean {
+    return this.balance(x) - this.reserved(x) - this.pending(x).out >= 0n;
+  }
+
+  /** Onay hic verilemeyecekse (sure doldu, bekleme bitti) ayirmayi geri al. */
+  release(who: Addr, amount: bigint): void {
+    const i = this.reservations.findIndex((r) => r.who === who && r.amount === amount);
+    if (i >= 0) this.reservations.splice(i, 1);
   }
 
   /** Withdrawn olayi (path: approved). Bakiye ve ayrilan tutar birlikte duser. */
