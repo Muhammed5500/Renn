@@ -1,7 +1,7 @@
 use soroban_sdk::{contracttype, Address, BytesN, Env};
 
 use crate::errors::Error;
-use crate::types::{Config, Scope};
+use crate::types::Config;
 
 /// KURAL: uzlasma icin kritik hicbir veri gecici (temporary) depolamaya
 /// yazilmaz. Gecici veri silinince geri gelmez.
@@ -15,8 +15,6 @@ pub enum DataKey {
     Signer(Address),
     /// persistent: ic bakiye
     Balance(Address),
-    /// persistent: kapsam (defter okur, zincir uygulamaz)
-    Scope(Address),
     /// persistent: (payer, recipient) kumulatif
     Paid(Address, Address),
     /// persistent: exit_start ledger'i
@@ -80,16 +78,6 @@ pub fn set_balance(e: &Env, who: &Address, amount: i128) {
     put(e, DataKey::Balance(who.clone()), &amount);
 }
 
-// ---------- kapsam ----------
-
-pub fn get_scope(e: &Env, who: &Address) -> Option<Scope> {
-    get(e, &DataKey::Scope(who.clone()))
-}
-
-pub fn set_scope(e: &Env, who: &Address, s: &Scope) {
-    put(e, DataKey::Scope(who.clone()), s);
-}
-
 // ---------- cift bazli kumulatif ----------
 
 pub fn get_paid(e: &Env, payer: &Address, recipient: &Address) -> i128 {
@@ -127,7 +115,6 @@ pub fn touch(e: &Env, who: &Address) {
     for k in [
         DataKey::Signer(who.clone()),
         DataKey::Balance(who.clone()),
-        DataKey::Scope(who.clone()),
         DataKey::ExitAt(who.clone()),
         DataKey::WithdrawNonce(who.clone()),
     ] {

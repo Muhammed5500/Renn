@@ -5,8 +5,8 @@
 //! harcayamiyor. Butun ag tek islemde kapaniyor.
 //!
 //! Bu kontrat KASA: parayi tutar, iki imzali fisleri netlestirir, ic
-//! bakiyeleri gunceller. Harcanabilir bakiyeyi ve kapsami zincir disindaki
-//! golge defter (operator) uygular. Kontrat, operatorun kabul imzasi olmayan
+//! bakiyeleri gunceller. Harcanabilir bakiyeyi zincir disindaki golge defter
+//! (operator) takip eder. Kontrat, operatorun kabul imzasi olmayan
 //! fisi kabul etmez; defter atlanamaz.
 //!
 //! Operator para CALAMAZ (fis odeyenin imzasini istiyor, cekim sahibinin
@@ -19,7 +19,6 @@ use soroban_sdk::{contract, contractimpl, token, Address, Bytes, BytesN, Env, Ve
 mod errors;
 mod events;
 mod exit;
-mod scope;
 mod settle;
 mod storage;
 mod types;
@@ -60,10 +59,9 @@ impl Hub {
     /// Katilimci kendi fis imzalama anahtarini kaydeder.
     ///
     /// `commitment_key` bir Stellar adresi degil, ham 32 baytlik ed25519 acik
-    /// anahtari. Sicak anahtar: calinirsa saldirgan, defterin kabul ettigi
-    /// kadar (kapsam ve harcanabilir bakiye) harcayabilir. Acik modda bu
-    /// saldirganin kendi adresine odeme demek; isimli mod izin listesiyle
-    /// sinirlar. Anahtar dondurme YOK (NOTLAR.md).
+    /// anahtari. Sicak anahtar: calinirsa saldirgan harcanabilir bakiye kadar
+    /// harcayabilir. Ajan ve anahtar guvenligi cuzdanin isi, bu kontratin
+    /// degil. Anahtar dondurme YOK (NOTLAR.md).
     ///
     /// SADECE ODEYEN OLACAKLAR icin gerekli. Saf alici join etmez.
     pub fn join(e: Env, who: Address, commitment_key: BytesN<32>) -> Result<(), Error> {
@@ -106,13 +104,6 @@ impl Hub {
         Ok(())
     }
 
-    /// Odeyenin kendi ajanina koydugu sinirlar. SADECE KAYIT, aninda gecerli.
-    /// Golge defter okur ve uygular, zincir uygulamaz.
-    pub fn set_scope(e: Env, who: Address, s: Scope) -> Result<(), Error> {
-        who.require_auth();
-        scope::set_scope(&e, &who, &s)
-    }
-
     // ================= uzlasma (izinsiz) =================
 
     /// Tek fis. Izin gerektirmez, caller sadece ucreti odeyen taraf.
@@ -135,8 +126,8 @@ impl Hub {
 
     // ================= cikis ve cekim =================
 
-    /// Cikis ilani. Kapsami SILMEZ, sadece yeni kapsam konmasini engeller.
-    /// Uzlasma bu sure boyunca CALISMAYA DEVAM EDER.
+    /// Cikis ilani. Defter bunu gorunce odeyeni kabul etmeyi keser ve bekleyen
+    /// fislerini uzlastirir. Uzlasma bu sure boyunca CALISMAYA DEVAM EDER.
     pub fn exit_start(e: Env, who: Address) -> Result<(), Error> {
         who.require_auth();
         exit::exit_start(&e, &who)
@@ -187,10 +178,6 @@ impl Hub {
 
     pub fn signer_of(e: Env, who: Address) -> Option<BytesN<32>> {
         st::get_signer(&e, &who)
-    }
-
-    pub fn scope_of(e: Env, who: Address) -> Option<Scope> {
-        st::get_scope(&e, &who)
     }
 
     /// Cikis ilan edildi mi. Defter bunu gorunce odeyeni kabul etmeyi keser.

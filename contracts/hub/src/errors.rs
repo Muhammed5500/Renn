@@ -8,7 +8,7 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum Error {
-    /// exit_delay == 0, ya da kapsamda negatif tavan
+    /// exit_delay == 0
     BadConfig = 1,
     // NotFunder = 2,            OLU (v1)
     // NotArbiter = 3,           OLU (v1)
@@ -31,7 +31,7 @@ pub enum Error {
     // ReceiptExists = 18,       OLU (v3.3: makbuz yok)
     /// kacis yolunda exit_delay dolmadi
     NotWithdrawable = 19,
-    // NoScope = 20,             OLU (v3.3: kapsam defterde uygulaniyor)
+    // NoScope = 20,             OLU (v3.3.1: kapsam kaldirildi)
     // NoViolation = 21,         OLU (v3.3: itiraz yok)
     // BadOpening = 22,          gizlilik, yok
     EmptyBalance = 23,
@@ -49,8 +49,7 @@ pub enum Error {
     NotPushable = 31,
     // OverCommitted = 32,       OLU (v3.3: odeme gucu defterde)
     // OverRecipientCap = 33,    OLU (v3.3: kapsam defterde)
-    /// cikis ilan edilmis, yeni kapsam konamaz
-    Exiting = 34,
+    // Exiting = 34,             OLU (v3.3.1: kapsam kaldirildi)
     /// v3.3: tutar <= 0 ya da tasma
     BadAmount = 35,
     /// v3.3: cekim onayinin suresi (valid_until) gecti

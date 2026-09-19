@@ -253,8 +253,6 @@ fn test_received_money_is_final() {
     // B adina sahte fis: B'nin anahtari olmadan imza tutmaz
     let forged = f.voucher(&b, &Key::new(99), &attacker, 40);
     assert!(f.hub.try_settle_one(&attacker, &forged).is_err());
-    // kapsam degistirmek B'nin imzasini istiyor
-    assert!(f.hub.try_set_scope(&b, &open_scope(&f.e)).is_err());
 
     assert_eq!(total(&f), 40, "B'nin parasi yerinde");
     assert_eq!(f.hub.balance_of(&attacker), 0);

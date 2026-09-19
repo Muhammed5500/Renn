@@ -1,12 +1,11 @@
 #![cfg(test)]
-//! Ortak kurulum + kayit, yatirma, kapsam, TTL testleri.
+//! Ortak kurulum + kayit, yatirma, TTL testleri.
 
 use super::*;
 use ed25519_dalek::{Signer as _, SigningKey};
 use soroban_sdk::{
-    map,
     testutils::{Address as _, Ledger},
-    Env, Map, String,
+    Env, String,
 };
 
 // ---------- ortak kurulum ----------
@@ -138,14 +137,6 @@ impl Fix<'_> {
     }
 }
 
-pub fn open_scope(e: &Env) -> Scope {
-    Scope {
-        limits: Map::new(e),
-        max_per_round: 1_000_000,
-        expires_ledger: u32::MAX,
-    }
-}
-
 // ================= kurulum =================
 
 #[test]
@@ -255,67 +246,7 @@ fn test_unknown_balances_are_zero() {
     assert_eq!(f.hub.balance_of(&a), 0);
     assert_eq!(f.hub.paid_between(&a, &b), 0);
     assert_eq!(f.hub.signer_of(&a), None);
-    assert_eq!(f.hub.scope_of(&a), None);
     assert_eq!(f.hub.withdraw_nonce_of(&a), 0);
-}
-
-// ================= kapsam (sadece kayit) =================
-
-#[test]
-fn test_scope_stored_immediately() {
-    let f = setup();
-    let (p, _) = f.payer(1, 100);
-    let r = Address::generate(&f.e);
-    let s = Scope {
-        limits: map![&f.e, (r.clone(), 50i128)],
-        max_per_round: 5,
-        expires_ledger: 5000,
-    };
-    f.hub.set_scope(&p, &s);
-    assert_eq!(f.hub.scope_of(&p), Some(s.clone()), "gecikme yok");
-
-    // Degistirmek de aninda. Daraltma sadece YENI fisleri etkiliyor, cunku
-    // uzlasma kapsama bakmiyor (test_scope_not_enforced_on_chain).
-    let s2 = Scope { max_per_round: 1, ..s };
-    f.hub.set_scope(&p, &s2);
-    assert_eq!(f.hub.scope_of(&p), Some(s2));
-}
-
-#[test]
-fn test_scope_requires_auth() {
-    let f = setup();
-    let (p, _) = f.payer(1, 100);
-    f.e.set_auths(&[]);
-    assert!(f.hub.try_set_scope(&p, &open_scope(&f.e)).is_err());
-    assert_eq!(f.hub.scope_of(&p), None);
-}
-
-#[test]
-fn test_scope_rejects_negative() {
-    let f = setup();
-    let (p, _) = f.payer(1, 100);
-    let r = Address::generate(&f.e);
-    let neg_cap = Scope {
-        limits: map![&f.e, (r, -1i128)],
-        ..open_scope(&f.e)
-    };
-    assert_eq!(f.hub.try_set_scope(&p, &neg_cap), Err(Ok(Error::BadConfig)));
-    let neg_round = Scope {
-        max_per_round: -1,
-        ..open_scope(&f.e)
-    };
-    assert_eq!(f.hub.try_set_scope(&p, &neg_round), Err(Ok(Error::BadConfig)));
-}
-
-#[test]
-fn test_exit_start_blocks_new_scope_but_keeps_old() {
-    let f = setup();
-    let (p, _) = f.payer(1, 100);
-    let s = open_scope(&f.e);
-    f.hub.set_scope(&p, &s);
-    f.hub.exit_start(&p);
-    assert_eq!(f.hub.try_set_scope(&p, &s), Err(Ok(Error::Exiting)));
-    assert_eq!(f.hub.scope_of(&p), Some(s), "eski kapsam silinmedi");
 }
 
 // ================= TTL =================

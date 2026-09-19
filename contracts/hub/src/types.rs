@@ -1,4 +1,4 @@
-use soroban_sdk::{contracttype, Address, BytesN, Map, Vec};
+use soroban_sdk::{contracttype, Address, BytesN, Vec};
 
 /// Kurulum ayarlari. Instance storage'da.
 #[contracttype]
@@ -32,23 +32,6 @@ pub struct Voucher {
     pub sig: BytesN<64>,
     /// Operatorun kabul imzasi, "acceptv1" yuku uzerinde.
     pub op_sig: BytesN<64>,
-}
-
-/// Odeyenin kendi ajanina koydugu sinirlar.
-///
-/// v3.3: ZINCIRDE UYGULANMAZ. Golge defter her fisi kabul etmeden once bunu
-/// okur ve uygular. Zincirde tutulmasinin sebebi seffaflik ve odeyenin ana
-/// anahtariyla dogrulanmis olmasi.
-#[contracttype]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Scope {
-    /// BOS = acik mod: herkese odenebilir.
-    /// DOLU = izin listesi + alici basina KUMULATIF tavan.
-    pub limits: Map<Address, i128>,
-    /// Defterin turu (demo 30 sn) basina bu odeyenin toplam harcama tavani.
-    pub max_per_round: i128,
-    /// Bu ledger'dan sonra defter bu odeyenin fisini kabul etmez.
-    pub expires_ledger: u32,
 }
 
 /// settle_batch sonucu.

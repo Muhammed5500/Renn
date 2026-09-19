@@ -2,11 +2,6 @@
 //!
 //! EN ONEMLI KURAL: uzlasmada HIC TOKEN TRANSFERI YOK. Sadece ic bakiye
 //! defteri degisir. Kontratin token bakiyesi bir kurus kipirdamaz.
-//!
-//! v3.3: ZINCIRDE KAPSAM KONTROLU YOK. Kapsami golge defter kabul aninda
-//! uyguluyor ve her fis operatorun kabul imzasini tasiyor. Kontrat kapsami
-//! burada tekrar kontrol etseydi, odeyen kabulden sonra kapsamini daraltip
-//! kabul edilmis fisi gecersiz kilabilirdi ve alici bedavaya calismis olurdu.
 
 use soroban_sdk::{Address, Env, Map, Vec};
 

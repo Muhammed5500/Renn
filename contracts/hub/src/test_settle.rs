@@ -3,7 +3,7 @@
 
 use super::*;
 use crate::test::*;
-use soroban_sdk::{map, testutils::Address as _, vec, Vec};
+use soroban_sdk::{testutils::Address as _, vec, Vec};
 
 // ================= tek fis =================
 
@@ -118,29 +118,6 @@ fn test_old_voucher_still_settles() {
     let v = f.voucher(&p, &k, &r, 100);
     f.advance(10_000);
     assert_eq!(f.hub.settle_one(&r, &v), 100);
-}
-
-/// Kapsam zincirde UYGULANMIYOR, bilincli. Defter kabul aninda uyguladi.
-/// Kontrat burada kontrol etseydi, odeyen kabulden sonra kapsamini daraltip
-/// kabul edilmis fisi gecersiz kilabilirdi; alici bedavaya calismis olurdu.
-#[test]
-fn test_scope_not_enforced_on_chain() {
-    let f = setup();
-    let (p, k) = f.payer(1, 500);
-    let r = Address::generate(&f.e);
-    let v = f.voucher(&p, &k, &r, 100); // defter kabul etti
-
-    // odeyen sonradan kapsamini daraltiyor: r listede bile degil, sure bitmis
-    let other = Address::generate(&f.e);
-    f.hub.set_scope(
-        &p,
-        &Scope {
-            limits: map![&f.e, (other, 1i128)],
-            max_per_round: 0,
-            expires_ledger: 0,
-        },
-    );
-    assert_eq!(f.hub.settle_one(&r, &v), 100, "kabul edilmis fis gecerli");
 }
 
 // ================= coktan coga netlestirme =================

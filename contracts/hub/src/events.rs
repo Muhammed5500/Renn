@@ -3,7 +3,7 @@
 //! CAP-86 UYARISI (Protocol 28): degeri bos olan alanlar artik yayinlanmiyor.
 //! Event testlerini alan ADINA gore yaz, pozisyona gore degil.
 //!
-//! Golge defter `Deposited`, `ExitStarted`, `Withdrawn` ve `ScopeSet`
+//! Golge defter `Joined`, `Deposited`, `ExitStarted`, `Withdrawn` ve `Settled`
 //! olaylarini dinliyor. Alan adlarini DEGISTIRME.
 //!
 //! v3.3: makbuz yok, kayit bu olaylardan okunur.
@@ -25,15 +25,6 @@ pub struct Deposited {
     pub who: Address,
     pub amount: i128,
     pub balance: i128,
-}
-
-#[contractevent]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ScopeSet {
-    #[topic]
-    pub who: Address,
-    pub max_per_round: i128,
-    pub expires_ledger: u32,
 }
 
 #[contractevent]

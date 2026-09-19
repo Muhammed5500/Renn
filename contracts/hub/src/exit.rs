@@ -24,7 +24,7 @@ use crate::events;
 use crate::storage as st;
 use crate::voucher;
 
-/// Cikis ilani. Sayaci baslatir. Kapsami SILMEZ, sadece yenisini engeller.
+/// Cikis ilani. Sayaci baslatir.
 /// Golge defter bu olayi gorunce odeyeni kabul etmeyi keser ve bekleyen
 /// fislerini hemen uzlastirir.
 pub fn exit_start(e: &Env, who: &Address) -> Result<(), Error> {
