@@ -234,6 +234,13 @@ test("cekim_ayirma: ayrilan harcanamaz, sure dolunca serbest", () => {
   assert.equal(l.spendable("A"), 10n * U);
 });
 
+test("cekim_istegi_tekrari: ayni nonce ile ikinci ayirma yok", () => {
+  const l = world({ A: 10n * U });
+  assert.equal(l.reserve("A", 2n * U, 2000, 0n), null);
+  assert.equal(l.reserve("A", 2n * U, 2000, 0n), "duplicate_request", "tekrar gonderilen istek");
+  assert.equal(l.spendable("A"), 8n * U, "sadece bir kez ayrildi");
+});
+
 test("cekim_gerceklesti: bakiye ve ayirma birlikte duser", () => {
   const l = world({ A: 10n * U });
   l.reserve("A", 6n * U, 2000);

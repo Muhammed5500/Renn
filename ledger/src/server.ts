@@ -481,13 +481,21 @@ function batchDone() {
  *     imzala. Cekim yuzunden EK ISLEM YOK.
  *   - AUTO_SETTLE kapaliysa (demo) olagan parti yok: partiyi hemen gonder.
  */
-async function approveWithdraw(body: { who: string; amount: string }) {
+async function approveWithdraw(body: { who: string; amount: string; nonce: string; sig: string }) {
   const who = body.who;
   const amount = BigInt(body.amount);
+  const nonce = BigInt(body.nonce ?? -1);
+  // Istek sahibinin imzasi: yoksa herkes baskasinin parasini ayirtip dondurabilirdi.
+  const signer = core.signers.get(who);
+  if (!signer) return { status: "refused", reason: "not_joined" };
+  if (nonce !== (await chain.withdrawNonceOf(who))) return { status: "refused", reason: "bad_nonce" };
+  if (!P.verifyHex(signer, P.withdrawRequestHash(hubCfg, who, amount, nonce), String(body.sig ?? ""))) {
+    return { status: "refused", reason: "bad_signature" };
+  }
   const validUntil = latestLedger + 60;
-  const err = core.reserve(who, amount, validUntil);
+  const err = core.reserve(who, amount, validUntil, nonce);
   if (err) return { status: "refused", reason: err };
-  log({ t: "reserve", who, amount, validUntil });
+  log({ t: "reserve", who, amount, validUntil, nonce });
   emit("withdraw_reserved", { who, amount });
 
   let path = "direct";
@@ -508,7 +516,7 @@ async function approveWithdraw(body: { who: string; amount: string }) {
     }
   }
 
-  const nonce = await chain.withdrawNonceOf(who);
+  // nonce istekte dogrulandi; onay ayni nonce'a imzalanir
   const sig = P.signHex(opKp, P.withdrawHash(hubCfg, who, amount, nonce, validUntil));
   emit("withdraw_approved", { who, amount, nonce, validUntil, path });
   return { status: "approved", amount, nonce, valid_until: validUntil, op_sig: sig, path };
@@ -530,6 +538,15 @@ function readBody(req: http.IncomingMessage): Promise<any> {
   });
 }
 
+/**
+ * Operator uclari (/, /state, /feed, /flush, /track) SADECE ayni makineden.
+ * Defter operatorun ic sistemi: butun odemeleri gosteriyor. Uzaktan gosterim
+ * gerekirse OPERATOR_ONLY=0.
+ */
+const OPERATOR_ONLY = process.env.OPERATOR_ONLY !== "0";
+const LOCAL = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+const OPERATOR_PATHS = new Set(["/", "/index.html", "/state", "/feed", "/flush", "/track"]);
+
 const server = http.createServer(async (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "content-type");
@@ -539,6 +556,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(code, { "content-type": "application/json" });
     res.end(json(body));
   };
+  if (OPERATOR_ONLY && OPERATOR_PATHS.has(url.pathname) && !LOCAL.has(req.socket.remoteAddress ?? "")) {
+    return send(403, { error: "operator_only" });
+  }
   try {
     if (req.method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) {
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
@@ -623,7 +643,7 @@ async function boot() {
         core.restore({ ...r, cumulative: BigInt(r.cumulative), delta: BigInt(r.delta) } as Entry);
       }
       if (r.t === "reserve" && r.validUntil >= latestLedger) {
-        core.reserve(r.who, BigInt(r.amount), r.validUntil);
+        core.reserve(r.who, BigInt(r.amount), r.validUntil, r.nonce !== undefined ? BigInt(r.nonce) : undefined);
       }
       if (r.t === "release") core.release(r.who, BigInt(r.amount));
     }

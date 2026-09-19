@@ -76,6 +76,15 @@ export const acceptHash = (c: HubCfg, p: string, r: string, cum: bigint) =>
 export const withdrawHash = (c: HubCfg, who: string, amount: bigint, nonce: bigint, until: number) =>
   sha(withdrawPreimage(c, who, amount, nonce, until));
 
+/**
+ * Cekim ISTEGI (zincir disi, sadece defter dogrular). Ajan kendi fis
+ * anahtariyla imzalar; boylece baskasi onun adina para ayirtip parasini
+ * donduramaz. nonce = kontrattaki withdraw_nonce_of: ayni istek tekrar
+ * gonderilirse ikinci ayirma yapilmaz.
+ */
+export const withdrawRequestHash = (c: HubCfg, who: string, amount: bigint, nonce: bigint) =>
+  sha(Buffer.from(`gd-withdraw-request|${c.networkId.toString("hex")}|${c.hub}|${who}|${amount}|${nonce}`));
+
 // ---------- ham ed25519 (Stellar hesabi degil, fis anahtari) ----------
 
 export function keyFromSeed(seedHex: string): Keypair {

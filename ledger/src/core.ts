@@ -73,6 +73,8 @@ export type Reservation = {
   who: Addr;
   amount: bigint;
   validUntil: number;
+  /** cekim isteginin nonce'u: ayni istek iki kez ayirma yapamaz */
+  nonce?: bigint;
 };
 
 const pk = (payer: Addr, recipient: Addr) => `${payer}|${recipient}`;
@@ -328,11 +330,14 @@ export class LedgerCore {
    * durum, parti yok). Degilse cekimin bir kismi henuz gelmemis paradan
    * olusuyor: sunucu olagan partiyi bekler, sonra imzalar.
    */
-  reserve(who: Addr, amount: bigint, validUntil: number): Refusal | null {
+  reserve(who: Addr, amount: bigint, validUntil: number, nonce?: bigint): Refusal | "duplicate_request" | null {
     if (!this.signers.has(who)) return "not_joined";
     if (amount <= 0n) return "bad_amount";
+    if (nonce !== undefined && this.reservations.some((r) => r.who === who && r.nonce === nonce)) {
+      return "duplicate_request";
+    }
     if (this.spendable(who) < amount) return "insufficient_spendable";
-    this.reservations.push({ who, amount, validUntil });
+    this.reservations.push({ who, amount, validUntil, nonce });
     return null;
   }
 

@@ -157,10 +157,13 @@ export async function settleNow() {
 
 /** Operator onayli cekim: defterden onay al, kendi imzanla cek. */
 export async function withdrawApproved(a: TestAgent, amount: bigint) {
+  // Istek ajanin fis anahtariyla imzali (defter sahibini dogrular)
+  const nonce = await chain.withdrawNonceOf(a.address);
+  const sig = P.signHex(a.agent.key, P.withdrawRequestHash(hubCfg, a.address, amount, nonce));
   const r = await fetch(`${LEDGER}/withdraw`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ who: a.address, amount: amount.toString() }),
+    body: JSON.stringify({ who: a.address, amount: amount.toString(), nonce: nonce.toString(), sig }),
   });
   const j = (await r.json()) as any;
   if (j.status !== "approved") return j;

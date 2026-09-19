@@ -5,7 +5,9 @@
 // 1. Kendi parasi: 20 kasada, 5 soz verildi, 15 cekiliyor -> ANINDA, parti yok.
 // 2. Gelmemis para: kasa 0, C'den 10 gelecek, 10 cekiliyor -> olagan partiyi
 //    bekliyor, cekim icin EK parti gonderilmiyor.
-import { newAgent, track, ledgerState, withdrawApproved, chain, fmt, U, pay } from "./testnet.ts";
+import { newAgent, track, ledgerState, withdrawApproved, chain, fmt, U, pay, hubCfg, LEDGER } from "./testnet.ts";
+import * as P from "../src/payload.ts";
+import { networkInterfaces } from "node:os";
 
 const must = (c: boolean, m: string) => {
   if (!c) {
@@ -13,13 +15,14 @@ const must = (c: boolean, m: string) => {
     process.exit(1);
   }
 };
-const [a, m, b, c] = await Promise.all([
+const [a, m, b, c, d] = await Promise.all([
   newAgent("A", 20n * U),
   newAgent("M", 0n, { join: false }),
   newAgent("B", 0n),
   newAgent("C", 10n * U),
+  newAgent("D", 5n * U),
 ]);
-await track([a, m, b, c].map((x) => x.address), { [a.address]: "A", [m.address]: "M", [b.address]: "B", [c.address]: "C" });
+await track([a, m, b, c, d].map((x) => x.address), { [a.address]: "A", [m.address]: "M", [b.address]: "B", [c.address]: "C" });
 
 console.log("\n1) kendi parasi");
 must((await pay(a, m.address, 5n * U)).status === "accepted", "A->M 5");
@@ -58,5 +61,32 @@ console.log("\n3) M'nin 5'i hala odenebiliyor mu (A'nin kasasinda kalan)");
 for (let i = 0; i < 25 && (await chain.paidBetween(a.address, m.address)) === 0n; i++) await new Promise((r) => setTimeout(r, 2000));
 must((await chain.paidBetween(a.address, m.address)) === 5n * U, "A->M uzlasmali");
 console.log(`   A->M 5 uzlasti, M zincirde ${fmt(await chain.balanceOf(m.address))}, skipped yok`);
+console.log("\n4) cekim istegi guvenligi ve operator uclari");
+{
+  const nonce = await chain.withdrawNonceOf(d.address);
+  // baskasinin anahtariyla imzalanmis istek
+  const forged = P.signHex(P.keyFromSeed("22".repeat(32)), P.withdrawRequestHash(hubCfg, d.address, U, nonce));
+  const r1 = await fetch(`${LEDGER}/withdraw`, { method: "POST", headers: { "content-type": "application/json" },
+    body: JSON.stringify({ who: d.address, amount: U.toString(), nonce: nonce.toString(), sig: forged }) }).then((r) => r.json());
+  console.log(`   baskasinin imzasi: ${r1.status} ${r1.reason}`);
+  must(r1.status === "refused" && r1.reason === "bad_signature", "sahte istek reddedilmeli");
+  // gecerli istek, sonra ayni istek tekrar
+  const good = P.signHex(d.agent.key, P.withdrawRequestHash(hubCfg, d.address, U, nonce));
+  const body = JSON.stringify({ who: d.address, amount: U.toString(), nonce: nonce.toString(), sig: good });
+  const r2 = await fetch(`${LEDGER}/withdraw`, { method: "POST", headers: { "content-type": "application/json" }, body }).then((r) => r.json());
+  const r3 = await fetch(`${LEDGER}/withdraw`, { method: "POST", headers: { "content-type": "application/json" }, body }).then((r) => r.json());
+  console.log(`   gecerli istek: ${r2.status}, ayni istek tekrar: ${r3.status} ${r3.reason}`);
+  must(r2.status === "approved" && r3.status === "refused" && r3.reason === "duplicate_request", "tekrar reddedilmeli");
+  // operator uclari: makinenin kendi ag adresinden (disaridan gibi)
+  const ip = Object.values(networkInterfaces()).flat().find((i) => i && i.family === "IPv4" && !i.internal)?.address;
+  if (ip) {
+    const port = new URL(LEDGER).port;
+    const st = await fetch(`http://${ip}:${port}/state`).then((r) => r.status).catch(() => "baglanti yok");
+    const sup = await fetch(`http://${ip}:${port}/supported`).then((r) => r.status).catch(() => "baglanti yok");
+    console.log(`   ${ip}: /state -> ${st}, /supported -> ${sup}`);
+    must(st === 403 && sup === 200, "operator ucu disariya kapali, facilitator acik olmali");
+  } else console.log("   yerel ag adresi yok, dis erisim denemesi atlandi");
+}
+
 console.log("\nCEKIM KONTROLU GECTI");
 process.exit(0);
