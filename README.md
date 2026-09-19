@@ -83,6 +83,22 @@ From `LIMITS.md` (simulation on testnet, two `ed25519_verify` per voucher):
 - A pair is one voucher per batch no matter how many payments it contains.
 - Fee: **0.0009 XLM per pair per batch** for pairs that already exist, 0.0189 XLM the first time (rent for new storage). An x402 payment measured on mainnet is 0.0024 XLM. Testnet only, mainnet not measured.
 
+## When a batch closes
+
+The ledger sends a batch on whichever trigger fires first (`AUTO_SETTLE=1`, the default):
+
+| Trigger | Default | Env | Why |
+|---|---|---|---|
+| Time | every 5 min if anything is unsettled | `ROUND_MS` | Cost vs. how long a recipient waits to withdraw externally |
+| Capacity | 150 unsettled **distinct pairs** | `MAX_PAIRS` | ~190 pairs fit in one transaction; also the per-batch cap |
+| Total value | 1000 units unsettled | `MAX_UNSETTLED` | Bounds how much value relies on the operator at any time |
+| Recipient value | 100 units owed to one recipient | `MAX_RECIPIENT_UNSETTLED` | Large payments reach the chain without waiting |
+| Exit | a payer calls `exit_start` | always on | The payer's vouchers must settle before the escape hatch opens |
+
+A trigger settles only what was accepted before it fired; vouchers arriving while a batch is in flight wait for their own trigger. Each batch records its reason (visible in `/state` and on the dashboard). `ledger/scripts/check-triggers.ts` verifies capacity, recipient and total triggers on testnet. Demo mode (`AUTO_SETTLE=0`) sends batches only on `/flush`, exit and withdrawals of incoming money.
+
+Rough cost for 20 pairs that pay each other continuously, from the measured 0.0009 XLM per pair per batch: about 52 XLM/day at 30 s, 5 XLM/day at 5 min, 0.4 XLM/day at 1 h.
+
 ## Layout
 
 ```

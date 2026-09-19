@@ -39,3 +39,13 @@ zincirde kimse elenmiyor.
   imlecini log'a yazıyor, uzun süre kapalı kalırsa kaçırdığı olaylar için
   adresleri zincirden tazelemek gerekir (`POST /track`).
 - **Ücret ölçümleri testnet.** Mainnet'te ölçülmedi (`LIMITS.md`).
+- **Geride kalan RPC düğümü.** Testnet RPC birden fazla düğüm. Parti ya da
+  çekimden sonra geride kalan bir düğüm eski bakiyeyi döndürürse defter bir
+  ödeyenin parasını fazla sanabilirdi. Önlem: zincir istemcisi gördüğü en yüksek
+  ledger'ı taban tutar, daha eski durumdan okuyan simülasyonu reddedip tekrar
+  dener; çekirdekte zincirde ödenen tutar asla geri düşmez
+  (`reconcile_monoton` testi). Bu koruma testlerde hiç tetiklenmedi, yani
+  sorunun sıklığı ölçülmedi.
+- **Parti tetikleyicisi istendiği ana kadarkini gönderir.** Parti uçuştayken
+  gelen fişler kendi tetikleyicisini bekler. Önceki halinde döngü yeni fişleri
+  de alıp yoğun trafikte durmadan parti gönderebiliyordu.
