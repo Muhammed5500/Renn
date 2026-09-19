@@ -6,7 +6,7 @@
 //
 // Defter AUTO_SETTLE=0 ile calisirken: node scripts/check-exit.ts
 
-import { newAgent, track, ledgerState, chain, dep, fmt, U } from "./testnet.ts";
+import { newAgent, track, ledgerState, chain, dep, fmt, U, pay } from "./testnet.ts";
 import { A } from "../src/chain.ts";
 
 const must = (c: boolean, m: string) => {
@@ -22,8 +22,8 @@ const [p, r] = await Promise.all([newAgent("P", 10n * U), newAgent("R", 0n, { jo
 await track([p.address, r.address], { [p.address]: "cikan", [r.address]: "alici" });
 
 console.log("\n7) cikis ilani -> defter kendiliginden uzlastirmali");
-const pay = await p.agent.pay(r.address, 3n * U);
-must(pay.status === "accepted", "odeme kabul edilmeli");
+const first = await pay(p, r.address, 3n * U);
+must(first.status === "accepted", "odeme kabul edilmeli");
 const before = await ledgerState();
 must(before.unsettled >= 1, "uzlasmamis fis olmali");
 const batches0 = before.stats.batches;
@@ -45,7 +45,7 @@ for (let i = 0; i < 20; i++) {
 must(settled, "defter cikis ilanindan sonra 40 sn icinde uzlastirmadi");
 const v = await view(p.address);
 must(v.exiting, "defter odeyeni cikista isaretlemeli");
-const again = await p.agent.pay(r.address, U);
+const again = await pay(p, r.address, U);
 must(again.status === "refused" && (again as any).reason === "exiting", `yeni fis reddedilmeli: ${JSON.stringify(again)}`);
 console.log(`   yeni fis: RET ${(again as any).reason}`);
 

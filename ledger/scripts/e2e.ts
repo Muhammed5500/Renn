@@ -4,7 +4,7 @@
 // Once defteri calistir:  AUTO_SETTLE=0 npm start
 // Sonra:                  node scripts/e2e.ts
 
-import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, U } from "./testnet.ts";
+import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, U, pay } from "./testnet.ts";
 
 const say = (s: string) => console.log(`\n=== ${s} ===`);
 const str = (v: unknown) => JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x));
@@ -25,7 +25,7 @@ const hubBefore = await chain.tokenBalance(dep.hub);
 let ok = 0;
 for (let i = 0; i < 20; i++) {
   for (const [p, q, amt] of [[a, b, U], [b, c, (9n * U) / 10n], [c, a, (8n * U) / 10n]] as const) {
-    const r = await p.agent.pay(q.address, amt);
+    const r = await pay(p, q.address, amt);
     must(r.status === "accepted", `tur ${i} ${p.name}->${q.name}: ${str(r)}`);
     ok++;
   }
@@ -36,7 +36,7 @@ say("3. Karsiliksiz cek: B'nin harcanabiliri yetmiyor");
 const st = await ledgerState();
 const bView = st.participants.find((p: any) => p.address === b.address);
 console.log(`B harcanabilir: ${fmt(bView.spendable)}`);
-const refused = await b.agent.pay(c.address, BigInt(bView.spendable) + 1n);
+const refused = await pay(b, c.address, BigInt(bView.spendable) + 1n);
 must(refused.status === "refused", "karsiliksiz fis kabul edildi");
 console.log(`ret sebebi: ${(refused as any).reason}`);
 
@@ -60,3 +60,5 @@ console.log(`cekim tx: https://stellar.expert/explorer/testnet/tx/${w.hash}`);
 console.log(`A cuzdanda: ${fmt(await chain.tokenBalance(a.address))}   A kasada: ${fmt(await chain.balanceOf(a.address))}`);
 
 say("BITTI");
+
+process.exit(0);

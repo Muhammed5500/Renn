@@ -7,7 +7,7 @@
 // Her sayi calisan sistemden geliyor: defterin /state'i ve zincir okumalari.
 
 import { Keypair } from "@stellar/stellar-sdk";
-import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, LEDGER, U } from "./testnet.ts";
+import { newAgent, track, settleNow, ledgerState, withdrawApproved, chain, dep, fmt, LEDGER, U, pay } from "./testnet.ts";
 import { A, voucherScVal } from "../src/chain.ts";
 
 const only = process.argv.slice(2).map(Number);
@@ -58,9 +58,9 @@ if (want(1)) {
   const batchesBefore = (await ledgerState()).stats.batches;
   let minA = 20n * U;
   for (let i = 0; i < 100; i++) {
-    await a.agent.pay(b.address, U);
-    if (i < 90) await b.agent.pay(c.address, U);
-    if (i < 80) await c.agent.pay(a.address, U);
+    await pay(a, b.address, U);
+    if (i < 90) await pay(b, c.address, U);
+    if (i < 80) await pay(c, a.address, U);
     if (i % 10 === 9) {
       const va = await view(a.address);
       if (BigInt(va.spendable) < minA) minA = BigInt(va.spendable);
@@ -86,7 +86,7 @@ if (want(2)) {
   for (let i = 0; i < 600; i++) {
     const p = payers[i % 5];
     const s = services[(i * 7) % 25];
-    const r = await p.agent.pay(s, U / 20n); // 0.05
+    const r = await pay(p, s, U / 20n); // 0.05
     if (r.status === "accepted") n++;
   }
   const secs = (Date.now() - t) / 1000;
@@ -100,20 +100,20 @@ if (want(2)) {
 // ================= SAHNE 3 =================
 if (want(3)) {
   scene(3, "KARSILIKSIZ CEK", "Kasandaki paradan fazlasini harcayamazsin, fis zincire hic gitmese bile.");
-  const r1 = await e.agent.pay(ahmet.address, 3n * U);
+  const r1 = await pay(e, ahmet.address, 3n * U);
   console.log(`  E (kasasi bos) -> Ahmet 3:        ${r1.status === "refused" ? "RET  " + r1.reason : "kabul"}`);
   const s1 = services[0];
   const s2 = services[1];
-  const r2 = await ahmet.agent.pay(s1, 10n * U);
+  const r2 = await pay(ahmet, s1, 10n * U);
   console.log(`  Ahmet (10) -> servis-1 10:        ${r2.status === "accepted" ? "kabul" : "RET " + (r2 as any).reason}`);
-  const r3 = await ahmet.agent.pay(s2, 10n * U);
+  const r3 = await pay(ahmet, s2, 10n * U);
   console.log(`  Ahmet ayni 10'u servis-2'ye:      ${r3.status === "refused" ? "RET  " + r3.reason : "kabul"}`);
 }
 
 // ================= SAHNE 4 =================
 if (want(4)) {
   scene(4, "CEKIM", "Kilitli ama hapis degil.");
-  const r = await deniz.agent.pay(services[2], 3n * U);
+  const r = await pay(deniz, services[2], 3n * U);
   console.log(`  Deniz (50) bir servise 3 oduyor: ${r.status === "accepted" ? "kabul, henuz uzlasmadi" : "RET " + (r as any).reason}`);
   const before = await chain.tokenBalance(deniz.address);
   const t = Date.now();
@@ -139,7 +139,7 @@ if (want(5)) {
     }
   }
   const to = payer === e ? a : e;
-  const r = await payer.agent.pay(to.address, U / 2n);
+  const r = await pay(payer, to.address, U / 2n);
   if (r.status !== "accepted") throw new Error(`sahne 5 hazirlik: ${(r as any).reason}`);
   const pair = await (await fetch(`${LEDGER}/pair/${payer.address}/${to.address}`)).json();
   const v = { payer: payer.address, recipient: to.address, cumulative: BigInt(pair.accepted), sig: pair.sig, opSig: pair.op_sig };

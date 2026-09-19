@@ -5,7 +5,7 @@
 // 1. Kendi parasi: 20 kasada, 5 soz verildi, 15 cekiliyor -> ANINDA, parti yok.
 // 2. Gelmemis para: kasa 0, C'den 10 gelecek, 10 cekiliyor -> olagan partiyi
 //    bekliyor, cekim icin EK parti gonderilmiyor.
-import { newAgent, track, ledgerState, withdrawApproved, chain, fmt, U } from "./testnet.ts";
+import { newAgent, track, ledgerState, withdrawApproved, chain, fmt, U, pay } from "./testnet.ts";
 
 const must = (c: boolean, m: string) => {
   if (!c) {
@@ -22,7 +22,7 @@ const [a, m, b, c] = await Promise.all([
 await track([a, m, b, c].map((x) => x.address), { [a.address]: "A", [m.address]: "M", [b.address]: "B", [c.address]: "C" });
 
 console.log("\n1) kendi parasi");
-must((await a.agent.pay(m.address, 5n * U)).status === "accepted", "A->M 5");
+must((await pay(a, m.address, 5n * U)).status === "accepted", "A->M 5");
 let b0 = (await ledgerState()).stats.batches;
 let t = Date.now();
 const w1 = await withdrawApproved(a, 15n * U);
@@ -34,7 +34,7 @@ must(w1.path === "direct", "anında olmali");
 console.log(`   A cuzdan ${fmt(await chain.tokenBalance(a.address))}, kasada ${fmt(await chain.balanceOf(a.address))} (M'nin 5'i icin)`);
 
 console.log("\n2) gelmemis para");
-must((await c.agent.pay(b.address, 10n * U)).status === "accepted", "C->B 10");
+must((await pay(c, b.address, 10n * U)).status === "accepted", "C->B 10");
 const st = await ledgerState();
 const bv = st.participants.find((p: any) => p.address === b.address);
 console.log(`   B harcanabilir ${fmt(bv.spendable)}, zincirde ${fmt(bv.locked)}`);
