@@ -1,6 +1,6 @@
 {
   "name": "rennpay",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Agent and service side: voucher key, x402 batch-settlement scheme (client + seller), vault calls, private entry through SPP.",
   "type": "module",
   "exports": {
@@ -36,7 +36,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test \"test/*.test.ts\"",
-    "prepublishOnly": "npm run build"
+    "prepublishOnly": "npm run build",
+    "prebuild": "node -e \"require('fs').copyFileSync('../spp/deployments.json','spp-deployments.json')\""
   },
   "dependencies": {
     "@stellar/stellar-sdk": "^17.1.0",
@@ -46,6 +47,7 @@
   "files": [
     "dist",
     "spp-shim",
+    "spp-deployments.json",
     "README.md",
     "LICENSE"
   ],

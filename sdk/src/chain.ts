@@ -103,7 +103,10 @@ export class Chain {
       } catch (e) {
         const msg = String(e);
         if (msg.includes("simulation failed")) throw e;
-        if (msg.includes("RPC behind")) {
+        // "Account not found" for an account that does exist is the same
+        // symptom as a lagging node: the read account is simply not in that
+        // node's state yet. Give it the same patience.
+        if (msg.includes("RPC behind") || msg.includes("Account not found")) {
           if (++lag > 10) throw e;
           await new Promise((r) => setTimeout(r, 1000));
           continue;

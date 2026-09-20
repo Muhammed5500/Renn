@@ -10,5 +10,5 @@ export { Agent } from "./agent.ts";
 export { BatchSettlementStellarClient, BatchSettlementStellarServer, SCHEME, NETWORK } from "./x402.ts";
 export { Chain, TESTNET, A, voucherScVal } from "./chain.ts";
 export { privateOnboard, openSponsored, relayedInvoke, type PrivateOnboardOpts } from "./private.ts";
-export { SppCli, RELAY_ALIAS, units } from "./spp.ts";
+export { SppCli, RELAY_ALIAS, units, DEFAULT_DEPLOYMENT } from "./spp.ts";
 export * as payload from "./payload.ts";

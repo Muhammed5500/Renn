@@ -16,14 +16,17 @@ export const RELAY_ALIAS = "gd-relay";
 const SHIM = fileURLToPath(
   new URL(process.platform === "win32" ? "../spp-shim/stellar.cmd" : "../spp-shim/stellar", import.meta.url),
 );
+/** The pool this package was published with. */
+export const DEFAULT_DEPLOYMENT = fileURLToPath(new URL("../spp-deployments.json", import.meta.url));
 
 export type SppCliCfg = {
   /** Path to the `spp` binary. */
   bin: string;
   /** Circuit artifacts (policy_tx_2_2_*.r1cs, *.graph.bin, *_proving_key.bin). */
   circuits: string;
-  /** SPP deployments.json that lists our pool. */
-  deployment: string;
+  /** SPP deployments.json listing the pool. Defaults to the copy shipped with
+   *  this package (Renn's own pool on testnet). */
+  deployment?: string;
   /** Operator base URL; its /relay endpoints pay the fees on the fresh address's side. */
   relayUrl: string;
   /** Wallet data (notes, keys) per account. Default: a temp directory per account. */
@@ -44,8 +47,8 @@ export class SppCli {
   private dirs = new Map<string, string>();
 
   constructor(cfg: SppCliCfg) {
-    this.cfg = cfg;
-    this.pool = JSON.parse(readFileSync(cfg.deployment, "utf8")).pools[0].poolContractId;
+    this.cfg = { ...cfg, deployment: cfg.deployment ?? DEFAULT_DEPLOYMENT };
+    this.pool = JSON.parse(readFileSync(this.cfg.deployment!, "utf8")).pools[0].poolContractId;
   }
 
   /** Binary and circuits present. */
@@ -89,7 +92,7 @@ export class SppCli {
 
   run(account: string, args: string[], signAs?: string): Promise<string> {
     const full = [
-      "--deployment", this.cfg.deployment,
+      "--deployment", this.cfg.deployment!,
       "--circuits-dir", this.cfg.circuits,
       "--data-dir", this.dataDir(account),
       "--account", account,

@@ -10,3 +10,4 @@ spp/circuits/*
 !spp/circuits/circuits.json
 sdk/dist/
 *.tgz
+sdk/spp-deployments.json
