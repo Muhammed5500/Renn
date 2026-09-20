@@ -375,6 +375,8 @@ function stateView() {
   return {
     hub: dep.hub,
     token: dep.token,
+    // the dashboard draws the batch against its capacity, so it needs the triggers
+    config: { maxPairs: MAX_PAIRS, autoSettle: AUTO_SETTLE, roundMs: ROUND_MS },
     ledger: latestLedger,
     seq: core.seq,
     unsettled: core.entries.length,

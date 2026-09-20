@@ -16,7 +16,7 @@ npm install rennpay
 | SDK | [`rennpay`](https://www.npmjs.com/package/rennpay), MIT |
 | Network | Stellar testnet, Protocol 28, Soroban |
 | x402 | v2, scheme `batch-settlement`, flow `upfront` ([spec](docs/scheme_batch_settlement_stellar.md)) |
-| Vault | [`CBIKFGMU…NJHLCCK`](https://stellar.expert/explorer/testnet/contract/CBIKFGMUUTJQ7PWRHHMH7TW4H3LFJS5HUFE6QHYZ2NDZ6ZZIPNJHLCCK) |
+| Vault | [`CCQ4EM42…4ZUZX47`](https://stellar.expert/explorer/testnet/contract/CCQ4EM423WGMSRUGXBAKHZ7IIMDI7JWGLOOMDVTP4IATQHFB74ZUZX47) |
 | Built for | Rise In x Stellar Pro Hackathon, Istanbul, 19-20 September 2026 |
 | Status | Works on testnet. Not audited, not on mainnet |
 
@@ -481,7 +481,7 @@ Testnet only; mainnet is not measured.
 
 | What | Address |
 |---|---|
-| Vault | [`CBIKFGMU…NJHLCCK`](https://stellar.expert/explorer/testnet/contract/CBIKFGMUUTJQ7PWRHHMH7TW4H3LFJS5HUFE6QHYZ2NDZ6ZZIPNJHLCCK) |
+| Vault | [`CCQ4EM42…4ZUZX47`](https://stellar.expert/explorer/testnet/contract/CCQ4EM423WGMSRUGXBAKHZ7IIMDI7JWGLOOMDVTP4IATQHFB74ZUZX47) |
 | Token (RTUSD, SEP-41 test token) | [`CBXCYC6Q…E2WA`](https://stellar.expert/explorer/testnet/contract/CBXCYC6QC2V2CTAE2U44LMYO2WBLIR7MU7K4YI737OKKQZAJJ4LFE2WA) |
 | SPP pool (ours) | [`CAVLB3J4…Q2OW`](https://stellar.expert/explorer/testnet/contract/CAVLB3J4I5EPWAFWZ6O464DNPMK523TCNTSECN3XGLUNPGAXTYZ3Q2OW) |
 
