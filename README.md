@@ -104,6 +104,17 @@ Signing vouchers off chain avoids both, and creates a third problem: **nobody ca
 
 That is the problem this rail solves, and it is the reason the design has an operator.
 
+**Renn is neither of the two.** It is not a channel: there is no escrow per relationship and no capital locked against one partner. It is **one shared vault**. An agent deposits once and can pay anyone who uses the same vault, including agents it has never met, and money it receives is spendable immediately, against anyone.
+
+| | On chain per call | Payment channel | Renn |
+|---|---|---|---|
+| Capital | Nothing locked | Locked per counterparty | One deposit, usable against everyone |
+| New counterparty | Nothing to do | A new channel, funded and opened | Nothing to do |
+| Cost per payment | One transaction | Amortised over open and close | A share of one batch transaction |
+| Time to serve | About 5 s | Instant | Instant |
+| Money received | Usable after the transaction | Usable inside that channel | Spendable immediately, anywhere in the vault |
+| Who can be paid | Anyone | Only the channel's other side | Any address, even one that never joined |
+
 ## The idea
 
 Track the **spendable balance** off chain, in one ordered public ledger, and make the contract refuse any voucher that ledger has not accepted.
