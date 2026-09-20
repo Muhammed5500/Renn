@@ -2,7 +2,7 @@
   "name": "renn-monorepo",
   "private": true,
   "type": "module",
-  "description": "Renn: instant many-to-many agent payments on Stellar, settled in one transaction.",
+  "description": "Renn: pay per API call on Stellar with off-chain vouchers, settled in one netted transaction.",
   "workspaces": [
     "sdk",
     "operator",

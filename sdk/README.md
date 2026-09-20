@@ -1,6 +1,6 @@
 # rennpay
 
-Agent-side SDK for [Renn](https://github.com/Muhammed5500/Renn): instant many-to-many agent payments on Stellar, settled in one transaction.
+Agent-side SDK for [Renn](https://github.com/Muhammed5500/Renn): pay per API call on Stellar with off-chain vouchers, and settle hundreds of payments in one netted transaction.
 
 Agents deposit a SEP-41 token into a Soroban vault and pay each other with off-chain cumulative vouchers over [x402](https://github.com/coinbase/x402) v2. An ordered ledger (the operator) accepts a voucher only if the payer's spendable balance covers it, then co-signs it; the vault rejects vouchers the operator has not accepted. Many payments settle later in a single `settle_batch` transaction that moves no tokens.
 

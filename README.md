@@ -1,8 +1,10 @@
 # Renn
 
-**Agents pay each other instantly. Nobody can spend more than they hold. The whole network settles in one transaction.**
+**Hundreds of agent payments, one Stellar transaction.**
 
-Renn is a payment rail for agent-to-agent commerce on Stellar. Agents deposit into one shared Soroban vault and pay each other with signed off-chain vouchers; hundreds of payments later settle as a single netted transaction. It is a real [x402](https://github.com/coinbase/x402) v2 scheme, so any agent or service already speaking x402 can use it by registering one scheme.
+Renn is a payment rail for agent-to-agent commerce on Stellar. An agent deposits once into a shared Soroban vault and then pays per API call with signed off-chain vouchers. Each payment clears in milliseconds, so the service is served on the same request; the debts are netted and written to the chain later, many payments at a time, in a single transaction. A payer can never promise more than its vault balance covers, and that is checked before the service is delivered.
+
+It is a real [x402](https://github.com/coinbase/x402) v2 scheme, so any agent or service already speaking x402 can use it by registering one scheme.
 
 ```bash
 npm install rennpay
@@ -19,7 +21,7 @@ npm install rennpay
 
 What it gives an agent:
 
-- **Instant payments.** The service is served on the same request; no waiting for a ledger close.
+- **No wait per call.** The payment clears off chain and the service is served on the same request. Only settlement waits for a batch, and the recipient already holds an enforceable claim.
 - **One deposit for everyone.** Not a channel per counterparty. Money received is immediately spendable against anyone.
 - **No bounced cheques.** A payer cannot promise more than it holds, and the check happens before the service is delivered.
 - **Your money stays yours.** Withdraw whenever you like, and if the operator disappears there is an escape hatch that does not need it.
@@ -42,7 +44,7 @@ Signing vouchers off chain avoids both and creates a third problem: **nobody can
 | Capital | Nothing locked | Locked per counterparty | One deposit, usable against everyone |
 | New counterparty | Nothing to do | A new channel, funded and opened | Nothing to do |
 | Cost per payment | One transaction | Amortised over open and close | A share of one batch transaction |
-| Time to serve | About 5 s | Instant | Instant |
+| Time to serve | About 5 s, one ledger close | Immediate | Immediate |
 | Money received | Usable after the transaction | Usable inside that channel | Spendable immediately, anywhere in the vault |
 | Who can be paid | Anyone | Only the channel's other side | Any address, even one that never joined |
 
