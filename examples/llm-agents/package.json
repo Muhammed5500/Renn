@@ -1,0 +1,17 @@
+{
+  "name": "renn-llm-agents",
+  "private": true,
+  "type": "module",
+  "description": "Four local LLM agents that buy services from each other over x402, paid through Renn.",
+  "scripts": {
+    "start": "node run.ts"
+  },
+  "dependencies": {
+    "@stellar/stellar-sdk": "^17.1.0",
+    "@x402/core": "^2.26.0",
+    "@x402/express": "^2.26.0",
+    "@x402/fetch": "^2.26.0",
+    "express": "^4.22.3",
+    "rennpay": "^0.1.1"
+  }
+}

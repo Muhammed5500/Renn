@@ -167,6 +167,18 @@ Up to that amount the operator signs immediately and **no batch is sent**: a wit
 
 `examples/x402-weather.ts` is the smallest complete picture: a weather API behind `@x402/express` called ten times by an agent using `@x402/fetch`, zero on-chain transactions per call. The service never created an account and never signed anything; a permissionless `payout` paid it after one batch.
 
+### Four Claude agents trading
+
+`examples/llm-agents/` is the demo that is not scripted. Four agents run as ordinary consumers of the published npm package: each sells one thing (briefs, analysis, copy, criticism), and on its own schedule asks Claude what to buy and from whom, then pays for it over x402. The seller's answer is Claude too.
+
+```bash
+cd examples/llm-agents && npm install && node run.ts
+```
+
+They are worth reading because they are the outside view of the SDK, and that view found two real bugs: an agent that joined, deposited and paid within the same second was refused, and a lagging RPC node answering "Account not found" for an account that exists took a process down. Both are fixed; both were invisible from inside our own demo.
+
+The LLM is the local `claude` CLI, so it needs no API key, and identities live in `examples/llm-agents/state/` (gitignored), so restarts keep the same addresses and vault balances.
+
 The dashboard at `http://localhost:8787` shows the same live: the voucher stream, the netting panel, batch reasons, and the vault's token balance standing still while hundreds of payments clear.
 
 ---
@@ -253,7 +265,8 @@ operator/         core.ts (the rules, pure), server.ts (facilitator + batcher + 
                   relay.ts (fee relayer), ui/ (live dashboard)
 
 demo/             testnet demo and checks; the agents here are scripted, not autonomous
-examples/         a paid weather API and an agent paying it
+examples/         a paid weather API, and four Claude agents that trade with each other
+                  using the published npm package (llm-agents/)
 docs/             the x402 scheme binding spec
 ```
 

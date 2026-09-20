@@ -11,3 +11,4 @@ spp/circuits/*
 sdk/dist/
 *.tgz
 sdk/spp-deployments.json
+examples/llm-agents/state/
