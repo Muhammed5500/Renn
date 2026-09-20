@@ -12,6 +12,7 @@ npm install rennpay
 
 | | |
 |---|---|
+| Site | [renn-beryl.vercel.app](https://renn-beryl.vercel.app) |
 | SDK | [`rennpay`](https://www.npmjs.com/package/rennpay), MIT |
 | Network | Stellar testnet, Protocol 28, Soroban |
 | x402 | v2, scheme `batch-settlement`, flow `upfront` ([spec](docs/scheme_batch_settlement_stellar.md)) |

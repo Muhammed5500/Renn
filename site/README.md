@@ -1,5 +1,7 @@
 # site
 
+Live at **[renn-beryl.vercel.app](https://renn-beryl.vercel.app)**.
+
 The Renn landing page. Next.js 16 (App Router, Turbopack), Tailwind v4, no database and no API routes: every section is static and its content is the repository's own, so the page and the README cannot drift apart silently.
 
 ```bash
